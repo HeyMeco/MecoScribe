@@ -1,0 +1,45 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.pins
+xcuserdata/
+*.xcodeproj
+*.xcworkspace
+
+# Xcode / Apple tooling
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.swiftmodule
+
+# Downloaded FluidAudio / Parakeet models (large; re-download on first run)
+models/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*~
+
+# Local transcription outputs (when testing in-repo)
+*.mecoscribe.json
