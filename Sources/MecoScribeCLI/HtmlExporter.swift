@@ -1477,6 +1477,24 @@ enum HtmlExporter {
           document.body.dataset.editMode = editMode;
         }
 
+        function mergeAdjacentSameSpeakerUtterances() {
+          const allWords = flattenUtterancesToWordsInOrder().map((item) => ({ ...item.word }));
+          if (!allWords.length) return false;
+          const merged = regroupUtterancesFromWords(allWords, { respectTimeGaps: false });
+          if (merged.length === utterances.length) return false;
+          utterances = merged;
+          syncWordBankFromUtterances();
+          return true;
+        }
+
+        function finalizeDragModeUtterances(options = {}) {
+          if (!isDragMode() || !mergeAdjacentSameSpeakerUtterances()) return false;
+          markDirty();
+          scheduleWriteToLinkedFile();
+          renderTranscript(options);
+          return true;
+        }
+
         function setEditMode(mode) {
           if (mode !== "assign" && mode !== "drag") return;
           if (editMode === mode) return;
@@ -1486,6 +1504,10 @@ enum HtmlExporter {
           wordDragState = null;
           window.getSelection()?.removeAllRanges();
           updateEditModeUI();
+          if (isDragMode() && mergeAdjacentSameSpeakerUtterances()) {
+            markDirty();
+            scheduleWriteToLinkedFile();
+          }
           renderTranscript();
         }
 
@@ -1713,6 +1735,8 @@ enum HtmlExporter {
             markDirty();
             scheduleWriteToLinkedFile();
             renderTranscript({ anchorStartTime: anchorStart });
+          } else {
+            finalizeDragModeUtterances({ anchorStartTime: anchorStart });
           }
         }
 
@@ -1804,6 +1828,8 @@ enum HtmlExporter {
             markDirty();
             scheduleWriteToLinkedFile();
             renderTranscript({ anchorStartTime: anchorStart });
+          } else {
+            finalizeDragModeUtterances({ anchorStartTime: anchorStart });
           }
         }
 
