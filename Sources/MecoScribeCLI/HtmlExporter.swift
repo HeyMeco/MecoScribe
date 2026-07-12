@@ -413,6 +413,35 @@ enum HtmlExporter {
           font-size: 0.82rem;
           color: var(--muted);
         }
+        .undo-redo {
+          display: inline-flex;
+          margin-left: auto;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          overflow: hidden;
+          background: var(--bg);
+        }
+        .undo-redo button {
+          border: none;
+          background: transparent;
+          color: var(--muted);
+          padding: 8px 14px;
+          cursor: pointer;
+          font-size: 0.88rem;
+          font-weight: 500;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .undo-redo button + button {
+          border-left: 1px solid var(--border);
+        }
+        .undo-redo button:hover:not(:disabled) {
+          color: var(--text);
+          background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+        }
+        .undo-redo button:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
         .save-status {
           flex: 1 1 220px;
           font-size: 0.85rem;
@@ -564,6 +593,10 @@ enum HtmlExporter {
               <button type="button" class="mode-btn" data-mode="drag" id="modeDragBtn">Move words</button>
             </div>
             <span class="mode-hint" id="modeHint">Select text to reassign speaker.</span>
+            <div class="undo-redo" role="group" aria-label="Undo and redo">
+              <button type="button" id="undoBtn" disabled title="Undo (⌘Z)">Undo</button>
+              <button type="button" id="redoBtn" disabled title="Redo (⇧⌘Z)">Redo</button>
+            </div>
           </div>
         </section>
 
@@ -683,6 +716,11 @@ enum HtmlExporter {
         const modeAssignBtn = document.getElementById("modeAssignBtn");
         const modeDragBtn = document.getElementById("modeDragBtn");
         const modeHint = document.getElementById("modeHint");
+        const undoBtn = document.getElementById("undoBtn");
+        const redoBtn = document.getElementById("redoBtn");
+        let historyUndo = [];
+        let historyRedo = [];
+        const MAX_HISTORY = 100;
 
         function defaultSpeakerName(id) {
           const match = id.match(/speaker_(\\d+)/);
@@ -776,6 +814,69 @@ enum HtmlExporter {
         function markDirty() {
           isDirty = true;
           updateSaveStatus();
+        }
+
+        function snapshotState() {
+          return {
+            utterances: JSON.parse(JSON.stringify(utterances)),
+            speakerIds: speakerIds.slice(),
+            speakerNames: Object.assign({}, speakerNames),
+          };
+        }
+
+        function restoreState(snapshot) {
+          utterances = JSON.parse(JSON.stringify(snapshot.utterances));
+          speakerIds = snapshot.speakerIds.slice();
+          speakerNames = Object.assign({}, snapshot.speakerNames);
+          syncWordBankFromUtterances();
+        }
+
+        function updateUndoRedoButtons() {
+          undoBtn.disabled = !historyUndo.length || !!activeEditor;
+          redoBtn.disabled = !historyRedo.length || !!activeEditor;
+        }
+
+        function resetHistory() {
+          historyUndo = [];
+          historyRedo = [];
+          updateUndoRedoButtons();
+        }
+
+        function pushHistory() {
+          historyUndo.push(snapshotState());
+          if (historyUndo.length > MAX_HISTORY) historyUndo.shift();
+          historyRedo = [];
+          updateUndoRedoButtons();
+        }
+
+        function undoEdit() {
+          if (!historyUndo.length || activeEditor) return;
+          closeActiveEditor(true);
+          hideSpeakerAssignMenu();
+          wordDragState = null;
+          clearWordDropIndicators();
+          historyRedo.push(snapshotState());
+          restoreState(historyUndo.pop());
+          markDirty();
+          scheduleWriteToLinkedFile();
+          renderSpeakers();
+          renderTranscript();
+          updateUndoRedoButtons();
+        }
+
+        function redoEdit() {
+          if (!historyRedo.length || activeEditor) return;
+          closeActiveEditor(true);
+          hideSpeakerAssignMenu();
+          wordDragState = null;
+          clearWordDropIndicators();
+          historyUndo.push(snapshotState());
+          restoreState(historyRedo.pop());
+          markDirty();
+          scheduleWriteToLinkedFile();
+          renderSpeakers();
+          renderTranscript();
+          updateUndoRedoButtons();
         }
 
         function scheduleWriteToLinkedFile() {
@@ -1086,6 +1187,7 @@ enum HtmlExporter {
           isDirty = false;
           lastSavedAt = null;
           fileConflictBanner.hidden = true;
+          resetHistory();
         }
 
         function normalizeWordToken(value) {
@@ -1497,6 +1599,9 @@ enum HtmlExporter {
           updateSaveStatus();
         }
 
+        undoBtn.addEventListener("click", undoEdit);
+        redoBtn.addEventListener("click", redoEdit);
+
         saveBtn.addEventListener("click", () => { saveTranscriptExplicit(); });
         downloadBtn.addEventListener("click", downloadTranscript);
         discardBtn.addEventListener("click", discardEdits);
@@ -1575,7 +1680,13 @@ enum HtmlExporter {
         }
 
         function finalizeDragModeUtterances(options = {}) {
-          if (!isDragMode() || !mergeAdjacentSameSpeakerUtterances()) return false;
+          if (!isDragMode()) return false;
+          pushHistory();
+          if (!mergeAdjacentSameSpeakerUtterances()) {
+            historyUndo.pop();
+            updateUndoRedoButtons();
+            return false;
+          }
           markDirty();
           scheduleWriteToLinkedFile();
           renderTranscript(options);
@@ -1591,9 +1702,15 @@ enum HtmlExporter {
           wordDragState = null;
           window.getSelection()?.removeAllRanges();
           updateEditModeUI();
-          if (isDragMode() && mergeAdjacentSameSpeakerUtterances()) {
-            markDirty();
-            scheduleWriteToLinkedFile();
+          if (isDragMode()) {
+            pushHistory();
+            if (mergeAdjacentSameSpeakerUtterances()) {
+              markDirty();
+              scheduleWriteToLinkedFile();
+            } else {
+              historyUndo.pop();
+              updateUndoRedoButtons();
+            }
           }
           renderTranscript();
         }
@@ -1747,6 +1864,7 @@ enum HtmlExporter {
         function insertWordAt(utteranceIndex, insertIndex) {
           closeActiveEditor(true);
           hideSpeakerAssignMenu();
+          pushHistory();
           const utterance = utterances[utteranceIndex];
 
           if (!utterance.words.length) {
@@ -1815,6 +1933,7 @@ enum HtmlExporter {
             words[insertIndex]?.startTime ?? words[insertIndex - 1]?.startTime;
           const targetFlatIndex = flatIndexForWordRef(utteranceIndex, insertIndex);
           const targetSpeakerId = utterances[utteranceIndex].speakerId;
+          pushHistory();
           const moved = moveWordRefsToFlatIndex(wordDragState.refs, targetFlatIndex, targetSpeakerId);
           wordDragState = null;
           if (moved) {
@@ -1823,6 +1942,8 @@ enum HtmlExporter {
             scheduleWriteToLinkedFile();
             renderTranscript({ anchorStartTime: anchorStart });
           } else {
+            historyUndo.pop();
+            updateUndoRedoButtons();
             finalizeDragModeUtterances({ anchorStartTime: anchorStart });
           }
         }
@@ -1904,6 +2025,7 @@ enum HtmlExporter {
           clearWordDropIndicators();
           const anchorStart = utterances[utteranceIndex].words[wordIndex]?.startTime;
           const target = wordDropTargetFromEvent(event, utteranceIndex, wordIndex);
+          pushHistory();
           const moved = moveWordRefsToFlatIndex(
             wordDragState.refs,
             target.flatIndex,
@@ -1916,6 +2038,8 @@ enum HtmlExporter {
             scheduleWriteToLinkedFile();
             renderTranscript({ anchorStartTime: anchorStart });
           } else {
+            historyUndo.pop();
+            updateUndoRedoButtons();
             finalizeDragModeUtterances({ anchorStartTime: anchorStart });
           }
         }
@@ -2003,7 +2127,7 @@ enum HtmlExporter {
           speakerAssignMenu.style.top = `${top}px`;
         }
 
-        function assignSelectedWordsToSpeaker(refs, newSpeakerId) {
+        function assignSelectedWordsToSpeaker(refs, newSpeakerId, options = {}) {
           if (!refs.length || selectedWordsAlreadySpeaker(refs, newSpeakerId)) {
             hideSpeakerAssignMenu();
             return;
@@ -2023,6 +2147,7 @@ enum HtmlExporter {
           });
 
           allWords.sort((a, b) => a.startTime - b.startTime);
+          if (!options.skipHistory) pushHistory();
           utterances = regroupUtterancesFromWords(allWords, { respectTimeGaps: false });
           syncWordBankFromUtterances();
           window.getSelection()?.removeAllRanges();
@@ -2068,6 +2193,7 @@ enum HtmlExporter {
             activeEditor.cancel();
           }
           activeEditor = null;
+          updateUndoRedoButtons();
         }
 
         function startWordEdit(span, utteranceIndex, wordIndex) {
@@ -2100,10 +2226,16 @@ enum HtmlExporter {
               activeEditor = null;
             }
             updateSaveStatus();
+            updateUndoRedoButtons();
           }
 
           function commit() {
             const next = span.textContent.trim();
+            if (next === original) {
+              finishEditing();
+              return;
+            }
+            pushHistory();
             if (next) {
               utterance.words[wordIndex].word = next;
               rebuildUtteranceText(utteranceIndex);
@@ -2151,6 +2283,7 @@ enum HtmlExporter {
           span.addEventListener("keydown", onKeyDown);
           span.addEventListener("input", onInput);
           activeEditor = { span, commit, cancel };
+          updateUndoRedoButtons();
         }
 
         function startUtteranceEdit(wordsEl, utteranceIndex) {
@@ -2179,6 +2312,15 @@ enum HtmlExporter {
 
           function commit() {
             const next = editor.textContent.trim();
+            if (next === original) {
+              detachListeners();
+              activeEditor = null;
+              renderTranscript();
+              updateSaveStatus();
+              updateUndoRedoButtons();
+              return;
+            }
+            pushHistory();
             utterance.text = next;
             utterance.words = reconcileWordsFromText(
               next,
@@ -2194,6 +2336,7 @@ enum HtmlExporter {
             activeEditor = null;
             renderTranscript();
             updateSaveStatus();
+            updateUndoRedoButtons();
           }
 
           function cancel() {
@@ -2202,6 +2345,7 @@ enum HtmlExporter {
             activeEditor = null;
             renderTranscript();
             updateSaveStatus();
+            updateUndoRedoButtons();
           }
 
           function onInput() {
@@ -2227,6 +2371,7 @@ enum HtmlExporter {
           editor.addEventListener("keydown", onKeyDown);
           editor.addEventListener("input", onInput);
           activeEditor = { editor, commit, cancel };
+          updateUndoRedoButtons();
         }
 
         function renderSpeakers() {
@@ -2400,6 +2545,16 @@ enum HtmlExporter {
           if (event.key === "Escape") {
             hideSpeakerAssignMenu();
             hideSpeakerChipMenu();
+            return;
+          }
+          if (activeEditor) return;
+          const mod = event.metaKey || event.ctrlKey;
+          if (!mod || event.key.toLowerCase() !== "z") return;
+          event.preventDefault();
+          if (event.shiftKey) {
+            redoEdit();
+          } else {
+            undoEdit();
           }
         });
 
@@ -2449,6 +2604,7 @@ enum HtmlExporter {
 
         function deleteSpeaker(speakerId) {
           if (transcriptionCountForSpeaker(speakerId) > 0) return;
+          pushHistory();
           speakerIds = speakerIds.filter((id) => id !== speakerId);
           delete speakerNames[speakerId];
           deletingSpeakerId = null;
@@ -2476,6 +2632,7 @@ enum HtmlExporter {
           if (!nextName) return;
 
           if (addingNewSpeaker) {
+            pushHistory();
             const newId = nextSpeakerId();
             speakerIds.push(newId);
             speakerNames[newId] = nextName;
@@ -2485,7 +2642,7 @@ enum HtmlExporter {
             renameDialog.close();
             renderSpeakers();
             if (refs?.length) {
-              assignSelectedWordsToSpeaker(refs, newId);
+              assignSelectedWordsToSpeaker(refs, newId, { skipHistory: true });
             } else {
               markDirty();
               scheduleWriteToLinkedFile();
@@ -2494,6 +2651,7 @@ enum HtmlExporter {
           }
 
           if (!renamingSpeakerId) return;
+          pushHistory();
           speakerNames[renamingSpeakerId] = nextName;
           markDirty();
           renderSpeakers();
@@ -2537,6 +2695,7 @@ enum HtmlExporter {
         renderTranscript();
         syncWordBankFromUtterances();
         updateSaveStatus();
+        updateUndoRedoButtons();
         restoreLinkedFileOnLoad().catch(() => showLinkPrompt(false));
       </script>
     </body>
