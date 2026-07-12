@@ -319,6 +319,17 @@ enum HtmlExporter {
           border-color: var(--accent);
           color: white;
         }
+        .dialog-actions button.danger {
+          background: #ef4444;
+          border-color: #ef4444;
+          color: white;
+        }
+        dialog p {
+          margin: 0 0 16px;
+          font-size: 0.92rem;
+          line-height: 1.5;
+          color: var(--muted);
+        }
         .toolbar {
           display: flex;
           flex-wrap: wrap;
@@ -493,6 +504,14 @@ enum HtmlExporter {
           color: var(--accent);
           font-weight: 500;
         }
+        .speaker-assign-option.danger {
+          color: #ef4444;
+        }
+        .speaker-assign-option.danger:hover,
+        .speaker-assign-option.danger:focus-visible {
+          border-color: color-mix(in srgb, #ef4444 35%, var(--border));
+          background: color-mix(in srgb, #ef4444 10%, var(--panel));
+        }
         ::selection {
           background: color-mix(in srgb, var(--accent) 35%, transparent);
         }
@@ -557,6 +576,10 @@ enum HtmlExporter {
         <div class="speaker-assign-options" id="speakerAssignOptions"></div>
       </div>
 
+      <div id="speakerChipMenu" class="speaker-assign-menu" hidden>
+        <div class="speaker-assign-options" id="speakerChipMenuOptions"></div>
+      </div>
+
       <dialog id="renameDialog">
         <form method="dialog" id="renameForm">
           <h3>Rename speaker</h3>
@@ -565,6 +588,17 @@ enum HtmlExporter {
           <div class="dialog-actions">
             <button type="button" id="cancelRename">Cancel</button>
             <button type="submit" class="primary">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="deleteSpeakerDialog">
+        <form method="dialog" id="deleteSpeakerForm">
+          <h3>Delete speaker</h3>
+          <p id="deleteSpeakerMessage"></p>
+          <div class="dialog-actions">
+            <button type="button" id="cancelDeleteSpeaker">Cancel</button>
+            <button type="submit" class="primary danger" id="confirmDeleteSpeaker">Delete</button>
           </div>
         </form>
       </dialog>
@@ -586,6 +620,7 @@ enum HtmlExporter {
         let renamingSpeakerId = null;
         let addingNewSpeaker = false;
         let assignRefsAfterNewSpeaker = null;
+        let deletingSpeakerId = null;
         let activeEditor = null;
         let isDirty = false;
         let lastSavedAt = null;
@@ -627,6 +662,13 @@ enum HtmlExporter {
         const linkSiblingBtn = document.getElementById("linkSiblingBtn");
         const speakerAssignMenu = document.getElementById("speakerAssignMenu");
         const speakerAssignOptions = document.getElementById("speakerAssignOptions");
+        const speakerChipMenu = document.getElementById("speakerChipMenu");
+        const speakerChipMenuOptions = document.getElementById("speakerChipMenuOptions");
+        const deleteSpeakerDialog = document.getElementById("deleteSpeakerDialog");
+        const deleteSpeakerForm = document.getElementById("deleteSpeakerForm");
+        const deleteSpeakerMessage = document.getElementById("deleteSpeakerMessage");
+        const cancelDeleteSpeaker = document.getElementById("cancelDeleteSpeaker");
+        const confirmDeleteSpeaker = document.getElementById("confirmDeleteSpeaker");
         let pendingSpeakerAssignRefs = [];
         let canonicalWordBank = null;
         let wordDragState = null;
@@ -668,6 +710,14 @@ enum HtmlExporter {
         function speakerColor(id) {
           const index = Math.max(0, speakerIds.indexOf(id));
           return palette[index % palette.length];
+        }
+
+        function transcriptionCountForSpeaker(speakerId) {
+          return utterances.filter((utterance) => utterance.speakerId === speakerId).length;
+        }
+
+        function formatTranscriptionCount(count) {
+          return count === 1 ? "1 transcription" : `${count} transcriptions`;
         }
 
         function formatTime(seconds) {
@@ -1469,6 +1519,36 @@ enum HtmlExporter {
           pendingSpeakerAssignRefs = [];
         }
 
+        function hideSpeakerChipMenu() {
+          speakerChipMenu.hidden = true;
+        }
+
+        function showSpeakerChipMenu(speakerId, clientX, clientY) {
+          speakerChipMenuOptions.innerHTML = "";
+
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "speaker-assign-option danger";
+          deleteButton.textContent = "Delete speaker…";
+          deleteButton.addEventListener("mousedown", (event) => event.preventDefault());
+          deleteButton.addEventListener("click", () => {
+            hideSpeakerChipMenu();
+            openDeleteSpeakerDialog(speakerId);
+          });
+          speakerChipMenuOptions.appendChild(deleteButton);
+
+          speakerChipMenu.hidden = false;
+          const menuRect = speakerChipMenu.getBoundingClientRect();
+          let left = clientX;
+          let top = clientY;
+          const maxLeft = window.innerWidth - menuRect.width - 12;
+          const maxTop = window.innerHeight - menuRect.height - 12;
+          left = Math.max(12, Math.min(left, maxLeft));
+          top = Math.max(12, Math.min(top, maxTop));
+          speakerChipMenu.style.left = `${left}px`;
+          speakerChipMenu.style.top = `${top}px`;
+        }
+
         function isDragMode() {
           return editMode === "drag";
         }
@@ -2160,6 +2240,11 @@ enum HtmlExporter {
               <button type="button" data-speaker="${id}">Rename</button>
             `;
             chip.querySelector("button").addEventListener("click", () => openRenameDialog(id));
+            chip.addEventListener("contextmenu", (event) => {
+              event.preventDefault();
+              hideSpeakerAssignMenu();
+              showSpeakerChipMenu(id, event.clientX, event.clientY);
+            });
             speakersPanel.appendChild(chip);
           });
         }
@@ -2306,14 +2391,22 @@ enum HtmlExporter {
           if (!speakerAssignMenu.hidden && !speakerAssignMenu.contains(event.target)) {
             hideSpeakerAssignMenu();
           }
+          if (!speakerChipMenu.hidden && !speakerChipMenu.contains(event.target)) {
+            hideSpeakerChipMenu();
+          }
         });
 
         document.addEventListener("keydown", (event) => {
-          if (event.key === "Escape") hideSpeakerAssignMenu();
+          if (event.key === "Escape") {
+            hideSpeakerAssignMenu();
+            hideSpeakerChipMenu();
+          }
         });
 
         window.addEventListener("scroll", hideSpeakerAssignMenu, true);
+        window.addEventListener("scroll", hideSpeakerChipMenu, true);
         window.addEventListener("resize", hideSpeakerAssignMenu);
+        window.addEventListener("resize", hideSpeakerChipMenu);
 
         function openRenameDialog(speakerId) {
           addingNewSpeaker = false;
@@ -2337,6 +2430,45 @@ enum HtmlExporter {
           speakerNameInput.focus();
           speakerNameInput.select();
         }
+
+        function openDeleteSpeakerDialog(speakerId) {
+          deletingSpeakerId = speakerId;
+          const name = speakerName(speakerId);
+          const count = transcriptionCountForSpeaker(speakerId);
+          if (count === 0) {
+            deleteSpeakerMessage.textContent =
+              `${name} has no transcriptions assigned and can be safely deleted.`;
+            confirmDeleteSpeaker.hidden = false;
+          } else {
+            deleteSpeakerMessage.textContent =
+              `${name} has ${formatTranscriptionCount(count)} assigned below. Reassign them to another speaker before deleting.`;
+            confirmDeleteSpeaker.hidden = true;
+          }
+          deleteSpeakerDialog.showModal();
+        }
+
+        function deleteSpeaker(speakerId) {
+          if (transcriptionCountForSpeaker(speakerId) > 0) return;
+          speakerIds = speakerIds.filter((id) => id !== speakerId);
+          delete speakerNames[speakerId];
+          deletingSpeakerId = null;
+          markDirty();
+          scheduleWriteToLinkedFile();
+          renderSpeakers();
+          renderTranscript();
+        }
+
+        deleteSpeakerForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (!deletingSpeakerId) return;
+          deleteSpeaker(deletingSpeakerId);
+          deleteSpeakerDialog.close();
+        });
+
+        cancelDeleteSpeaker.addEventListener("click", () => {
+          deleteSpeakerDialog.close();
+          deletingSpeakerId = null;
+        });
 
         renameForm.addEventListener("submit", (event) => {
           event.preventDefault();
