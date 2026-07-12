@@ -1,11 +1,13 @@
 # MecoScribe
 
-![MecoScribe interactive HTML viewer](.github/mecoscribe-overview.gif)
+![MecoScribe-CLI interactive HTML viewer](.github/mecoscribe-overview.gif)
 
-Local CLI for **diarized transcription** on macOS, built on [FluidAudio](https://github.com/FluidInference/FluidAudio). Upload an audio file and get a speaker-labeled transcript plus an interactive HTML viewer.
+Local **diarized transcription** on macOS, built on [FluidAudio](https://github.com/FluidInference/FluidAudio). Available as a CLI and a native SwiftUI app.
 
 ## Features
 
+- **Native macOS app** — SwiftUI editor with audio-synced highlighting, speaker editing, undo/redo, and auto-save
+- **CLI** — batch transcription from the terminal
 - **Diarized transcription** — identifies speakers and assigns words to each speaker
 - **Plain-text output** — `<filename>.txt` with timestamps and speaker labels
 - **Interactive HTML** — `<filename>.html` with:
@@ -30,15 +32,32 @@ cd MecoScribe
 swift build -c release
 ```
 
-The binary is at `.build/release/mecoscribe`.
+The CLI binary is at `.build/release/mecoscribe`. The app binary is at `.build/release/MecoScribe`.
+
+## macOS App
+
+Open `Package.swift` in Xcode, select the **MecoScribe** scheme, and Run. Or from the terminal:
+
+```bash
+swift run MecoScribe
+```
+
+### App workflows
+
+1. **Transcribe audio** — open or drop an audio file (`.wav`, `.mp3`, `.m4a`). Models download on first run, then MecoScribe writes `.txt` and `.mecoscribe.json` beside the audio and opens the editor.
+2. **Open existing transcript** — open a `.txt` file (with sibling audio and optional `.mecoscribe.json` sidecar).
+3. **Edit** — rename speakers, edit words/utterances, assign or move words, undo/redo. Changes auto-save to disk.
+4. **Export** — save a copy as `.txt` or export an interactive `.html` viewer.
+
+App settings (diarization mode, ASR model, model cache path) are available under **MecoScribe → Settings**.
 
 ## Model cache
 
 Downloaded FluidAudio models are stored in `./models` by default (relative to your current working directory). Subsequent runs reuse the cache instead of re-downloading.
 
-Override with `--models-dir /path/to/models` or the `MECOSCRIBE_MODELS_DIR` environment variable.
+Override with `--models-dir /path/to/models` or the `MECOSCRIBE_MODELS_DIR` environment variable. The app uses the same default (`./models` relative to the working directory) unless overridden in Settings.
 
-## Usage
+## CLI Usage
 
 ```bash
 # Basic — writes meeting.txt and meeting.html next to the audio file

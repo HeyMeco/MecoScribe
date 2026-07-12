@@ -1,10 +1,10 @@
 import FluidAudio
 import Foundation
 
-enum ModelCache {
+public enum ModelCache {
     private static let defaultFolderName = "models"
 
-    static func resolveDirectory(customPath: String?) throws -> URL {
+    public static func resolveDirectory(customPath: String?) throws -> URL {
         let url: URL
         if let customPath, !customPath.isEmpty {
             url = URL(fileURLWithPath: customPath, isDirectory: true)

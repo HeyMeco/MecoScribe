@@ -1,7 +1,7 @@
 import Foundation
 
-enum HtmlExporter {
-    static func export(
+public enum HtmlExporter {
+    public static func export(
         _ result: ScribeResult,
         audioPath: String,
         htmlPath: String,

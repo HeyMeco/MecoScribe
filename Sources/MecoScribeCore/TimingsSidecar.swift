@@ -1,8 +1,8 @@
 import Foundation
 
-struct TimingsSidecar: Codable, Sendable {
-    static let currentVersion = 1
-    static let fileExtension = "mecoscribe.json"
+public struct TimingsSidecar: Codable, Sendable {
+    public static let currentVersion = 1
+    public static let fileExtension = "mecoscribe.json"
 
     let version: Int
     let audioFile: String
@@ -13,7 +13,7 @@ struct TimingsSidecar: Codable, Sendable {
     let utterances: [DiarizedUtterance]
     let words: [DiarizedWord]?
 
-    init(result: ScribeResult, speakerNames: [String: String]) {
+    public init(result: ScribeResult, speakerNames: [String: String]) {
         version = Self.currentVersion
         audioFile = result.audioFile
         durationSeconds = result.durationSeconds
@@ -41,7 +41,7 @@ struct TimingsSidecar: Codable, Sendable {
         return utterances.flatMap(\.words).sorted { $0.startTime < $1.startTime }
     }
 
-    static func path(forTxtPath txtPath: String) -> String {
+    public static func path(forTxtPath txtPath: String) -> String {
         let base = (txtPath as NSString).deletingPathExtension
         return (base as NSString).appendingPathExtension(fileExtension)!
     }
@@ -54,14 +54,14 @@ struct TimingsSidecar: Codable, Sendable {
         URL(fileURLWithPath: path(forTxtPath: txtPath)).lastPathComponent
     }
 
-    static func write(_ sidecar: TimingsSidecar, to path: String) throws {
+    public static func write(_ sidecar: TimingsSidecar, to path: String) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(sidecar)
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
-    static func read(from path: String) throws -> TimingsSidecar {
+    public static func read(from path: String) throws -> TimingsSidecar {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let decoder = JSONDecoder()
         return try decoder.decode(TimingsSidecar.self, from: data)

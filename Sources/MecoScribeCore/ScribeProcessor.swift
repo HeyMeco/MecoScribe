@@ -1,23 +1,49 @@
 import FluidAudio
 import Foundation
 
-enum ScribeProcessor {
+public enum ScribeProcessor {
     private static let logger = AppLogger(category: "MecoScribe")
 
-    struct Options {
-        var diarizationMode: DiarizationMode = .offline
-        var threshold: Float = 0.6
-        var modelVersion: AsrModelVersion = .v3  // multilingual (default)
-        var modelsDirectory: URL
-        var modelDir: String?
+    public struct Options: Sendable {
+        public var diarizationMode: DiarizationMode = .offline
+        public var threshold: Float = 0.6
+        public var modelVersion: AsrModelVersion = .v3
+        public var modelsDirectory: URL
+        public var modelDir: String?
+
+        public init(
+            diarizationMode: DiarizationMode = .offline,
+            threshold: Float = 0.6,
+            modelVersion: AsrModelVersion = .v3,
+            modelsDirectory: URL,
+            modelDir: String? = nil
+        ) {
+            self.diarizationMode = diarizationMode
+            self.threshold = threshold
+            self.modelVersion = modelVersion
+            self.modelsDirectory = modelsDirectory
+            self.modelDir = modelDir
+        }
     }
 
-    enum DiarizationMode: String {
+    public enum DiarizationMode: String, Sendable {
         case streaming
         case offline
     }
 
-    static func process(audioPath: String, options: Options) async throws -> ScribeResult {
+    public typealias ProgressHandler = @Sendable (TranscriptionProgressUpdate) -> Void
+
+    public static func process(
+        audioPath: String,
+        options: Options,
+        onProgress: ProgressHandler? = nil
+    ) async throws -> ScribeResult {
+        func report(_ step: TranscriptionStep, detail: String? = nil) {
+            onProgress?(TranscriptionProgressUpdate(step: step, detail: detail))
+        }
+
+        report(.preparing, detail: "Using models at \(options.modelsDirectory.path)")
+
         let audioURL = URL(fileURLWithPath: audioPath)
         guard FileManager.default.fileExists(atPath: audioPath) else {
             throw ScribeError.fileNotFound(audioPath)
@@ -25,12 +51,13 @@ enum ScribeProcessor {
 
         logger.info("Using models cache: \(options.modelsDirectory.path)")
         logger.info("Diarizing audio (\(options.diarizationMode.rawValue) mode)...")
-        let segments = try await diarize(audioPath: audioPath, options: options)
+        let segments = try await diarize(audioPath: audioPath, options: options, report: report)
         let speakerIds = Array(Set(segments.map(\.speakerId))).sorted()
 
         logger.info("Transcribing audio (\(modelLabel(for: options.modelVersion)))...")
-        let wordTimings = try await transcribe(audioURL: audioURL, options: options)
+        let wordTimings = try await transcribe(audioURL: audioURL, options: options, report: report)
 
+        report(.aligning, detail: "Matching \(wordTimings.count) words to \(speakerIds.count) speakers")
         logger.info("Aligning \(wordTimings.count) words to \(speakerIds.count) speakers...")
         let utterances = WordSpeakerAligner.align(words: wordTimings, segments: segments)
 
@@ -54,20 +81,23 @@ enum ScribeProcessor {
 
     private static func diarize(
         audioPath: String,
-        options: Options
+        options: Options,
+        report: @escaping (TranscriptionStep, String?) -> Void
     ) async throws -> [TimedSpeakerSegment] {
         switch options.diarizationMode {
         case .streaming:
             return try await diarizeStreaming(
                 audioPath: audioPath,
                 options: options,
-                threshold: options.threshold
+                threshold: options.threshold,
+                report: report
             )
         case .offline:
             return try await diarizeOffline(
                 audioPath: audioPath,
                 options: options,
-                threshold: options.threshold
+                threshold: options.threshold,
+                report: report
             )
         }
     }
@@ -75,14 +105,17 @@ enum ScribeProcessor {
     private static func diarizeStreaming(
         audioPath: String,
         options: Options,
-        threshold: Float
+        threshold: Float,
+        report: @escaping (TranscriptionStep, String?) -> Void
     ) async throws -> [TimedSpeakerSegment] {
+        report(.loadingDiarizerModels, "Streaming diarization models")
         let config = DiarizerConfig(clusteringThreshold: threshold)
         let manager = DiarizerManager(config: config)
         let diarizerDir = ModelCache.diarizerDirectory(base: options.modelsDirectory)
         let models = try await DiarizerModels.downloadIfNeeded(to: diarizerDir)
         manager.initialize(models: models)
 
+        report(.diarizing, "Streaming mode")
         let audioSamples = try AudioConverter().resampleAudioFile(path: audioPath)
         let result = try manager.performCompleteDiarization(audioSamples, sampleRate: 16_000)
         return result.segments
@@ -91,13 +124,16 @@ enum ScribeProcessor {
     private static func diarizeOffline(
         audioPath: String,
         options: Options,
-        threshold: Float
+        threshold: Float,
+        report: @escaping (TranscriptionStep, String?) -> Void
     ) async throws -> [TimedSpeakerSegment] {
+        report(.loadingDiarizerModels, "Offline diarization models")
         let offlineConfig = OfflineDiarizerConfig(clusteringThreshold: Double(threshold))
         let manager = OfflineDiarizerManager(config: offlineConfig)
         let models = try await OfflineDiarizerModels.load(from: options.modelsDirectory)
         manager.initialize(models: models)
 
+        report(.diarizing, "Offline mode — this may take a while")
         let audioURL = URL(fileURLWithPath: audioPath)
         let factory = AudioSourceFactory()
         let targetSampleRate = offlineConfig.segmentation.sampleRate
@@ -118,8 +154,12 @@ enum ScribeProcessor {
 
     private static func transcribe(
         audioURL: URL,
-        options: Options
+        options: Options,
+        report: @escaping (TranscriptionStep, String?) -> Void
     ) async throws -> [WordTiming] {
+        let modelLabel = modelLabel(for: options.modelVersion)
+        report(.loadingSpeechModels, modelLabel)
+
         let models: AsrModels
         if let modelDir = options.modelDir {
             models = try await AsrModels.load(
@@ -146,6 +186,7 @@ enum ScribeProcessor {
             Task { await asrManager.cleanup() }
         }
 
+        report(.transcribing, modelLabel)
         var decoderState = TdtDecoderState.make(decoderLayers: await asrManager.decoderLayerCount)
         let result = try await asrManager.transcribe(
             audioURL,
@@ -169,11 +210,11 @@ enum ScribeProcessor {
     }
 }
 
-enum ScribeError: LocalizedError {
+public enum ScribeError: LocalizedError {
     case fileNotFound(String)
     case invalidArgument(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .fileNotFound(let path):
             return "Audio file not found: \(path)"

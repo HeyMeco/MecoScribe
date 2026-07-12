@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import MecoScribeCore
 
 enum ScribeCommand {
     private static let logger = AppLogger(category: "MecoScribe")

@@ -1,12 +1,12 @@
 import Foundation
 
-struct ParsedTranscript {
-    let result: ScribeResult
-    let speakerNames: [String: String]
+public struct ParsedTranscript {
+    public let result: ScribeResult
+    public let speakerNames: [String: String]
 }
 
-enum TranscriptParser {
-    static func parse(txtPath: String, audioPath: String) throws -> ParsedTranscript {
+public enum TranscriptParser {
+    public static func parse(txtPath: String, audioPath: String) throws -> ParsedTranscript {
         let sidecarPath = TimingsSidecar.path(forTxtPath: txtPath)
         if FileManager.default.fileExists(atPath: sidecarPath),
             let sidecar = try? TimingsSidecar.read(from: sidecarPath)
