@@ -242,6 +242,9 @@ enum HtmlExporter {
         .word.drop-before {
           box-shadow: -2px 0 0 0 var(--accent);
         }
+        .word.drop-after {
+          box-shadow: 2px 0 0 0 var(--accent);
+        }
         .word-insert-gap {
           display: inline-block;
           width: 10px;
@@ -254,6 +257,14 @@ enum HtmlExporter {
           background: color-mix(in srgb, var(--accent) 20%, transparent);
         }
         .word-insert-gap.drop-active {
+          box-shadow: inset 0 0 0 2px var(--accent);
+        }
+        .utterance-boundary-gap {
+          height: 12px;
+          border-radius: 4px;
+        }
+        .utterance-boundary-gap.drop-active {
+          background: color-mix(in srgb, var(--accent) 20%, transparent);
           box-shadow: inset 0 0 0 2px var(--accent);
         }
         .utterance-editor {
@@ -1553,7 +1564,16 @@ enum HtmlExporter {
 
           const minSource = sourceIndices[0];
           const maxSource = sourceIndices[sourceIndices.length - 1];
-          if (targetFlatIndex >= minSource && targetFlatIndex <= maxSource + 1) {
+          const movingSpeakerIds = new Set(
+            sourceIndices.map((index) => items[index].word.speakerId)
+          );
+          const changesSpeaker =
+            movingSpeakerIds.size !== 1 || !movingSpeakerIds.has(targetSpeakerId);
+          if (
+            !changesSpeaker &&
+            targetFlatIndex >= minSource &&
+            targetFlatIndex <= maxSource + 1
+          ) {
             return false;
           }
 
@@ -1597,9 +1617,23 @@ enum HtmlExporter {
         }
 
         function clearWordDropIndicators() {
-          transcriptEl.querySelectorAll(".word.drop-before, .word-insert-gap.drop-active").forEach((node) => {
-            node.classList.remove("drop-before", "drop-active");
-          });
+          transcriptEl
+            .querySelectorAll(
+              ".word.drop-before, .word.drop-after, .word-insert-gap.drop-active, .utterance-boundary-gap.drop-active"
+            )
+            .forEach((node) => {
+              node.classList.remove("drop-before", "drop-after", "drop-active");
+            });
+        }
+
+        function wordDropTargetFromEvent(event, utteranceIndex, wordIndex) {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const insertAfter = event.clientX >= rect.left + rect.width / 2;
+          return {
+            flatIndex: flatIndexForWordRef(utteranceIndex, wordIndex) + (insertAfter ? 1 : 0),
+            speakerId: utterances[utteranceIndex].speakerId,
+            insertAfter,
+          };
         }
 
         function insertWordAt(utteranceIndex, insertIndex) {
@@ -1703,6 +1737,20 @@ enum HtmlExporter {
           return gap;
         }
 
+        function createUtteranceBoundaryGap(utteranceIndex) {
+          const gap = document.createElement("div");
+          gap.className = "utterance-boundary-gap";
+          gap.title = "Drop to move here";
+          gap.addEventListener("dragover", handleInsertGapDragOver);
+          gap.addEventListener("dragleave", () => {
+            gap.classList.remove("drop-active");
+          });
+          gap.addEventListener("drop", (event) => {
+            handleInsertGapDrop(event, utteranceIndex, 0);
+          });
+          return gap;
+        }
+
         function handleWordDragStart(event, utteranceIndex, wordIndex) {
           if (!isDragMode() || activeEditor) {
             event.preventDefault();
@@ -1732,7 +1780,8 @@ enum HtmlExporter {
           event.stopPropagation();
           event.dataTransfer.dropEffect = "move";
           clearWordDropIndicators();
-          event.currentTarget.classList.add("drop-before");
+          const target = wordDropTargetFromEvent(event, utteranceIndex, wordIndex);
+          event.currentTarget.classList.add(target.insertAfter ? "drop-after" : "drop-before");
         }
 
         function handleWordDrop(event, utteranceIndex, wordIndex) {
@@ -1740,9 +1789,12 @@ enum HtmlExporter {
           event.preventDefault();
           event.stopPropagation();
           clearWordDropIndicators();
-          const targetFlatIndex = flatIndexForWordRef(utteranceIndex, wordIndex);
-          const targetSpeakerId = utterances[utteranceIndex].speakerId;
-          const moved = moveWordRefsToFlatIndex(wordDragState.refs, targetFlatIndex, targetSpeakerId);
+          const target = wordDropTargetFromEvent(event, utteranceIndex, wordIndex);
+          const moved = moveWordRefsToFlatIndex(
+            wordDragState.refs,
+            target.flatIndex,
+            target.speakerId
+          );
           wordDragState = null;
           if (moved) {
             window.getSelection()?.removeAllRanges();
@@ -2080,6 +2132,10 @@ enum HtmlExporter {
           if (activeEditor) return;
           transcriptEl.innerHTML = "";
           utterances.forEach((utterance, index) => {
+            if (isDragMode() && index > 0) {
+              transcriptEl.appendChild(createUtteranceBoundaryGap(index));
+            }
+
             const block = document.createElement("article");
             block.className = "utterance";
             block.style.borderLeftColor = speakerColor(utterance.speakerId);
