@@ -41,5 +41,9 @@ Icon
 *.swp
 *~
 
+# Electron
+electron/node_modules/
+electron/dist/
+
 # Local transcription outputs (when testing in-repo)
 *.mecoscribe.json

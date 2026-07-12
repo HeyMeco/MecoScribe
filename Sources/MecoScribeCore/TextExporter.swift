@@ -1,7 +1,7 @@
 import Foundation
 
-enum TextExporter {
-    static func export(_ result: ScribeResult, speakerNames: [String: String], to path: String) throws {
+public enum TextExporter {
+    public static func export(_ result: ScribeResult, speakerNames: [String: String], to path: String) throws {
         var lines: [String] = []
         lines.append("MecoScribe Transcript")
         lines.append("Source: \(result.audioFile)")

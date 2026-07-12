@@ -7,6 +7,10 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
+        .library(
+            name: "MecoScribeCore",
+            targets: ["MecoScribeCore"]
+        ),
         .executable(
             name: "mecoscribe",
             targets: ["MecoScribeCLI"]
@@ -16,11 +20,18 @@ let package = Package(
         .package(url: "https://github.com/FluidInference/FluidAudio.git", branch: "main"),
     ],
     targets: [
-        .executableTarget(
-            name: "MecoScribeCLI",
+        .target(
+            name: "MecoScribeCore",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
+            ],
+            resources: [
+                .process("Resources"),
             ]
+        ),
+        .executableTarget(
+            name: "MecoScribeCLI",
+            dependencies: ["MecoScribeCore"]
         ),
     ]
 )

@@ -81,10 +81,7 @@ enum WordSpeakerAligner {
         var currentWords: [DiarizedWord] = [words[0]]
 
         for word in words.dropFirst() {
-            let gap = word.startTime - currentWords.last!.endTime
-            let speakerChanged = word.speakerId != currentSpeaker
-
-            if speakerChanged || gap > 1.5 {
+            if word.speakerId != currentSpeaker {
                 utterances.append(makeUtterance(speakerId: currentSpeaker, words: currentWords))
                 currentSpeaker = word.speakerId
                 currentWords = [word]

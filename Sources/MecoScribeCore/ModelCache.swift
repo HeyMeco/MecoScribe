@@ -1,10 +1,20 @@
 import FluidAudio
 import Foundation
 
-enum ModelCache {
+public enum ModelCache {
+    private static let appName = "MecoScribe"
     private static let defaultFolderName = "models"
 
-    static func resolveDirectory(customPath: String?) throws -> URL {
+    /// System-wide default: `~/Library/Application Support/MecoScribe/models` on macOS.
+    public static var defaultDirectoryURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return base
+            .appendingPathComponent(appName, isDirectory: true)
+            .appendingPathComponent(defaultFolderName, isDirectory: true)
+            .standardizedFileURL
+    }
+
+    public static func resolveDirectory(customPath: String?) throws -> URL {
         let url: URL
         if let customPath, !customPath.isEmpty {
             url = URL(fileURLWithPath: customPath, isDirectory: true)
@@ -13,8 +23,7 @@ enum ModelCache {
         {
             url = URL(fileURLWithPath: env, isDirectory: true)
         } else {
-            url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-                .appendingPathComponent(defaultFolderName, isDirectory: true)
+            url = defaultDirectoryURL
         }
 
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

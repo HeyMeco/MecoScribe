@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MecoScribe</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1117;
+      --panel: #171a22;
+      --text: #e8eaed;
+      --muted: #9aa0a6;
+      --accent: #6ea8fe;
+      --border: #2a2f3a;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --accent: #2563eb;
+        --border: #e5e7eb;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+    }
+    .card {
+      width: min(480px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      text-align: center;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.75rem;
+    }
+    p {
+      color: var(--muted);
+      margin: 0 0 24px;
+      line-height: 1.5;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    button {
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    button:hover {
+      filter: brightness(1.05);
+    }
+    .dropzone {
+      margin-top: 20px;
+      padding: 28px 16px;
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .dropzone.dragover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+    }
+    .footer {
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+    }
+    .footer button {
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 8px 12px;
+    }
+    dialog {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel);
+      color: var(--text);
+      padding: 20px;
+      width: min(420px, 90vw);
+    }
+    dialog h2 {
+      margin: 0 0 16px;
+      font-size: 1.1rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+      text-align: left;
+    }
+    input, select {
+      width: 100%;
+      margin-top: 4px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+    }
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .error {
+      color: #ef4444;
+      font-size: 0.85rem;
+      margin-top: 12px;
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>MecoScribe</h1>
+    <p>Local diarized transcription with an interactive transcript editor.</p>
+    <div class="actions">
+      <button class="primary" id="openAudioBtn">Open Audio File…</button>
+      <button id="openTranscriptBtn">Open Existing Transcript…</button>
+    </div>
+    <div class="dropzone" id="dropzone">
+      Drop an audio file or .txt transcript here
+    </div>
+    <div class="footer">
+      <button id="settingsBtn">Settings…</button>
+    </div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <dialog id="settingsDialog">
+    <form id="settingsForm" method="dialog">
+      <h2>Transcription Settings</h2>
+      <label>
+        Diarization mode
+        <select name="diarizationMode">
+          <option value="offline">Offline (VBx)</option>
+          <option value="streaming">Streaming</option>
+        </select>
+      </label>
+      <label>
+        Clustering threshold (0.3–0.9)
+        <input name="threshold" type="number" min="0.3" max="0.9" step="0.05">
+      </label>
+      <label>
+        ASR model
+        <select name="modelVersion">
+          <option value="v3">v3 — multilingual</option>
+          <option value="v2">v2 — English only</option>
+        </select>
+      </label>
+      <label>
+        Models cache directory
+        <input name="modelsDir" type="text" placeholder="Default: ~/Library/Application Support/MecoScribe/models">
+      </label>
+      <label>
+        Local ASR model directory
+        <input name="modelDir" type="text" placeholder="Optional">
+      </label>
+      <label>
+        Preset speaker names (comma-separated)
+        <input name="presetSpeakers" type="text" placeholder="Alice, Bob, Carol">
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="cancelSettings">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const openAudioBtn = document.getElementById("openAudioBtn");
+    const openTranscriptBtn = document.getElementById("openTranscriptBtn");
+    const settingsBtn = document.getElementById("settingsBtn");
+    const dropzone = document.getElementById("dropzone");
+    const errorEl = document.getElementById("error");
+    const settingsDialog = document.getElementById("settingsDialog");
+    const settingsForm = document.getElementById("settingsForm");
+    const cancelSettings = document.getElementById("cancelSettings");
+
+    function showError(message) {
+      errorEl.textContent = message || "";
+    }
+
+    async function loadSettingsIntoForm() {
+      const settings = await window.mecoscribeApp.getSettings();
+      settingsForm.diarizationMode.value = settings.diarizationMode || "offline";
+      settingsForm.threshold.value = settings.threshold ?? 0.6;
+      settingsForm.modelVersion.value = settings.modelVersion || "v3";
+      settingsForm.modelsDir.value = settings.modelsDir || "";
+      settingsForm.modelDir.value = settings.modelDir || "";
+      settingsForm.presetSpeakers.value = settings.presetSpeakers || "";
+    }
+
+    openAudioBtn.addEventListener("click", async () => {
+      showError("");
+      const path = await window.mecoscribeApp.openAudioDialog();
+      if (path) await window.mecoscribeApp.openAudio(path);
+    });
+
+    openTranscriptBtn.addEventListener("click", async () => {
+      showError("");
+      const path = await window.mecoscribeApp.openTranscriptDialog();
+      if (!path) return;
+      try {
+        await window.mecoscribeApp.openTranscript(path);
+      } catch (error) {
+        showError(error.message);
+      }
+    });
+
+    settingsBtn.addEventListener("click", async () => {
+      await loadSettingsIntoForm();
+      settingsDialog.showModal();
+    });
+
+    cancelSettings.addEventListener("click", () => settingsDialog.close());
+
+    settingsForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = new FormData(settingsForm);
+      await window.mecoscribeApp.setSettings({
+        diarizationMode: form.get("diarizationMode"),
+        threshold: Number(form.get("threshold")),
+        modelVersion: form.get("modelVersion"),
+        modelsDir: String(form.get("modelsDir") || "").trim(),
+        modelDir: String(form.get("modelDir") || "").trim(),
+        presetSpeakers: String(form.get("presetSpeakers") || "").trim(),
+      });
+      settingsDialog.close();
+    });
+
+    window.mecoscribeApp.onOpenSettings(async () => {
+      await loadSettingsIntoForm();
+      settingsDialog.showModal();
+    });
+
+    function isAudio(path) {
+      return /\.(wav|mp3|m4a|aac|flac|ogg)$/i.test(path);
+    }
+
+    function isTranscript(path) {
+      return /\.txt$/i.test(path);
+    }
+
+    async function handleDrop(paths) {
+      if (!paths?.length) return;
+      const filePath = paths[0];
+      showError("");
+      try {
+        if (isAudio(filePath)) {
+          await window.mecoscribeApp.openAudio(filePath);
+        } else if (isTranscript(filePath)) {
+          await window.mecoscribeApp.openTranscript(filePath);
+        } else {
+          showError("Drop an audio file or .txt transcript.");
+        }
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+
+    dropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropzone.classList.remove("dragover");
+      const paths = [...event.dataTransfer.files].map((f) => f.path);
+      handleDrop(paths);
+    });
+  </script>
+</body>
+</html>

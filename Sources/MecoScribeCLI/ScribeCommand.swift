@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import MecoScribeCore
 
 enum ScribeCommand {
     private static let logger = AppLogger(category: "MecoScribe")
@@ -15,6 +16,7 @@ enum ScribeCommand {
         var speakerNames: [String: String] = [:]
         var htmlOnly = false
         var both = false
+        var jsonProgress = false
     }
 
     static func run(arguments: [String]) async {
@@ -89,9 +91,26 @@ enum ScribeCommand {
                     modelDir: parsed.modelDir
                 )
 
-                let result = try await ScribeProcessor.process(audioPath: audioFile, options: options)
+                let result: ScribeResult
+                if parsed.jsonProgress {
+                    result = try await ScribeProcessor.process(
+                        audioPath: audioFile,
+                        options: options,
+                        onProgress: { update in
+                            reportJSONProgress(update)
+                        }
+                    )
+                } else {
+                    result = try await ScribeProcessor.process(
+                        audioPath: audioFile,
+                        options: options
+                    )
+                }
 
                 try TextExporter.export(result, speakerNames: parsed.speakerNames, to: txtPath)
+                if parsed.jsonProgress {
+                    reportJSONProgress(TranscriptionProgressUpdate(step: .saving))
+                }
                 try HtmlExporter.export(
                     result,
                     audioPath: audioFile,
@@ -133,6 +152,8 @@ enum ScribeCommand {
                 parsed.htmlOnly = true
             case "--both":
                 parsed.both = true
+            case "--json-progress":
+                parsed.jsonProgress = true
             case "--mode":
                 guard i + 1 < args.count else {
                     fputs("ERROR: Missing value for --mode\n", stderr)
@@ -212,6 +233,20 @@ enum ScribeCommand {
         return parsed
     }
 
+    private static func reportJSONProgress(_ update: TranscriptionProgressUpdate) {
+        let payload: [String: Any] = [
+            "type": "progress",
+            "step": update.step.title,
+            "stepId": update.step.rawValue,
+            "detail": update.detail ?? update.step.detail,
+            "fraction": TranscriptionStep.fractionCompleted(for: update.step),
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: payload),
+           let line = String(data: data, encoding: .utf8) {
+            print(line)
+        }
+    }
+
     private static func printUsage() {
         let usage = """
         MecoScribe — diarized transcription powered by FluidAudio
@@ -223,7 +258,8 @@ enum ScribeCommand {
             -o, --output-dir <dir>       Output directory (default: same as audio file)
             --html-only                  If .txt exists, regenerate HTML only
             --both                       If .txt exists, re-transcribe and overwrite both
-            --models-dir <dir>           Model cache directory (default: ./models)
+            --json-progress              Emit machine-readable progress lines (for Electron)
+            --models-dir <dir>           Model cache directory (default: ~/Library/Application Support/MecoScribe/models)
             --mode <streaming|offline>   Diarization mode (default: offline)
             --threshold <float>          Speaker clustering threshold (default: 0.6)
             --model-version <v2|v3>      ASR model: v3 multilingual (default), v2 English-only
