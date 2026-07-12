@@ -358,11 +358,11 @@ enum HtmlExporter {
           flex-wrap: wrap;
           align-items: center;
           gap: 12px;
-          margin-bottom: 20px;
-          padding: 12px 14px;
-          border: 1px solid var(--border);
-          border-radius: 12px;
-          background: var(--panel);
+        }
+        .player-panel .mode-toolbar {
+          margin-top: 14px;
+          padding-top: 14px;
+          border-top: 1px solid var(--border);
         }
         .mode-toolbar-label {
           font-size: 0.88rem;
@@ -516,15 +516,6 @@ enum HtmlExporter {
           </p>
         </header>
 
-        <section class="mode-toolbar">
-          <span class="mode-toolbar-label">Edit mode</span>
-          <div class="mode-toggle" role="group" aria-label="Edit mode">
-            <button type="button" class="mode-btn active" data-mode="assign" id="modeAssignBtn">Assign speaker</button>
-            <button type="button" class="mode-btn" data-mode="drag" id="modeDragBtn">Move words</button>
-          </div>
-          <span class="mode-hint" id="modeHint">Select text to reassign speaker.</span>
-        </section>
-
         <div id="linkPromptBanner" class="restore-banner" hidden>
           <span id="linkPromptText">Link the project folder so edits save automatically.</span>
           <button type="button" id="linkSiblingBtn">Link folder</button>
@@ -547,6 +538,14 @@ enum HtmlExporter {
           <strong>Audio playback</strong>
           <audio id="audio" controls preload="metadata" src="{{AUDIO_SRC}}"></audio>
           <div class="time-display" id="timeDisplay">00:00 / {{DURATION}}</div>
+          <div class="mode-toolbar">
+            <span class="mode-toolbar-label">Edit mode</span>
+            <div class="mode-toggle" role="group" aria-label="Edit mode">
+              <button type="button" class="mode-btn active" data-mode="assign" id="modeAssignBtn">Assign speaker</button>
+              <button type="button" class="mode-btn" data-mode="drag" id="modeDragBtn">Move words</button>
+            </div>
+            <span class="mode-hint" id="modeHint">Select text to reassign speaker.</span>
+          </div>
         </section>
 
         <section class="speakers-panel" id="speakersPanel"></section>
@@ -1702,6 +1701,9 @@ enum HtmlExporter {
           event.preventDefault();
           event.stopPropagation();
           clearWordDropIndicators();
+          const words = utterances[utteranceIndex].words;
+          const anchorStart =
+            words[insertIndex]?.startTime ?? words[insertIndex - 1]?.startTime;
           const targetFlatIndex = flatIndexForWordRef(utteranceIndex, insertIndex);
           const targetSpeakerId = utterances[utteranceIndex].speakerId;
           const moved = moveWordRefsToFlatIndex(wordDragState.refs, targetFlatIndex, targetSpeakerId);
@@ -1710,7 +1712,7 @@ enum HtmlExporter {
             window.getSelection()?.removeAllRanges();
             markDirty();
             scheduleWriteToLinkedFile();
-            renderTranscript();
+            renderTranscript({ anchorStartTime: anchorStart });
           }
         }
 
@@ -1789,6 +1791,7 @@ enum HtmlExporter {
           event.preventDefault();
           event.stopPropagation();
           clearWordDropIndicators();
+          const anchorStart = utterances[utteranceIndex].words[wordIndex]?.startTime;
           const target = wordDropTargetFromEvent(event, utteranceIndex, wordIndex);
           const moved = moveWordRefsToFlatIndex(
             wordDragState.refs,
@@ -1800,7 +1803,7 @@ enum HtmlExporter {
             window.getSelection()?.removeAllRanges();
             markDirty();
             scheduleWriteToLinkedFile();
-            renderTranscript();
+            renderTranscript({ anchorStartTime: anchorStart });
           }
         }
 
@@ -2128,8 +2131,50 @@ enum HtmlExporter {
           });
         }
 
-        function renderTranscript() {
+        function stickyHeaderOffset() {
+          const panel = document.querySelector(".player-panel");
+          return panel ? panel.getBoundingClientRect().bottom : 0;
+        }
+
+        function captureScrollAnchor(options = {}) {
+          if (options.anchorStartTime != null) {
+            const el = transcriptEl.querySelector(
+              `.word[data-start="${options.anchorStartTime}"]`
+            );
+            if (el) {
+              return {
+                startTime: options.anchorStartTime,
+                top: el.getBoundingClientRect().top,
+              };
+            }
+          }
+
+          const minTop = stickyHeaderOffset();
+          for (const word of transcriptEl.querySelectorAll(".word")) {
+            const top = word.getBoundingClientRect().top;
+            if (top >= minTop) {
+              return {
+                startTime: Number(word.dataset.start),
+                top,
+              };
+            }
+          }
+          return null;
+        }
+
+        function restoreScrollAnchor(anchor) {
+          if (!anchor) return;
+          const el = transcriptEl.querySelector(`.word[data-start="${anchor.startTime}"]`);
+          if (!el) return;
+          const delta = el.getBoundingClientRect().top - anchor.top;
+          if (Math.abs(delta) > 0.5) {
+            window.scrollBy(0, delta);
+          }
+        }
+
+        function renderTranscript(options = {}) {
           if (activeEditor) return;
+          const anchor = captureScrollAnchor(options);
           transcriptEl.innerHTML = "";
           utterances.forEach((utterance, index) => {
             if (isDragMode() && index > 0) {
@@ -2215,6 +2260,7 @@ enum HtmlExporter {
             block.appendChild(wordsEl);
             transcriptEl.appendChild(block);
           });
+          restoreScrollAnchor(anchor);
         }
 
         transcriptEl.addEventListener("mouseup", () => {
