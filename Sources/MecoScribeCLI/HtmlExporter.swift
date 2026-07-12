@@ -230,6 +230,32 @@ enum HtmlExporter {
           outline-offset: 1px;
           background: var(--bg);
         }
+        .word[draggable="true"] {
+          cursor: grab;
+        }
+        .word[draggable="true"]:active {
+          cursor: grabbing;
+        }
+        .word.dragging {
+          opacity: 0.45;
+        }
+        .word.drop-before {
+          box-shadow: -2px 0 0 0 var(--accent);
+        }
+        .word-insert-gap {
+          display: inline-block;
+          width: 10px;
+          height: 1.2em;
+          vertical-align: text-bottom;
+          cursor: pointer;
+          border-radius: 2px;
+        }
+        .word-insert-gap:hover {
+          background: color-mix(in srgb, var(--accent) 20%, transparent);
+        }
+        .word-insert-gap.drop-active {
+          box-shadow: inset 0 0 0 2px var(--accent);
+        }
         .utterance-editor {
           min-height: 1.5em;
           padding: 8px 10px;
@@ -315,6 +341,55 @@ enum HtmlExporter {
         .toolbar button:disabled {
           opacity: 0.55;
           cursor: not-allowed;
+        }
+        .mode-toolbar {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 20px;
+          padding: 12px 14px;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          background: var(--panel);
+        }
+        .mode-toolbar-label {
+          font-size: 0.88rem;
+          font-weight: 600;
+          color: var(--muted);
+        }
+        .mode-toggle {
+          display: inline-flex;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          overflow: hidden;
+          background: var(--bg);
+        }
+        .mode-toggle button {
+          border: none;
+          background: transparent;
+          color: var(--muted);
+          padding: 8px 14px;
+          cursor: pointer;
+          font-size: 0.88rem;
+          font-weight: 500;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .mode-toggle button + button {
+          border-left: 1px solid var(--border);
+        }
+        .mode-toggle button:hover {
+          color: var(--text);
+          background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+        }
+        .mode-toggle button.active {
+          background: var(--accent);
+          color: white;
+        }
+        .mode-hint {
+          flex: 1 1 240px;
+          font-size: 0.82rem;
+          color: var(--muted);
         }
         .save-status {
           flex: 1 1 220px;
@@ -422,13 +497,22 @@ enum HtmlExporter {
           <p class="hint">
             <kbd>Left-click</kbd> a word to edit ·
             <kbd>Right-click</kbd> to play from here ·
-            Select text to reassign speaker ·
+            Click the space before or after a word to add one ·
             Double-click a segment to edit the full line ·
             <kbd>Esc</kbd> cancels edit ·
             <strong>Link folder</strong> once — edits save to disk automatically
             (Chrome/Edge; select the folder containing this HTML and transcript)
           </p>
         </header>
+
+        <section class="mode-toolbar">
+          <span class="mode-toolbar-label">Edit mode</span>
+          <div class="mode-toggle" role="group" aria-label="Edit mode">
+            <button type="button" class="mode-btn active" data-mode="assign" id="modeAssignBtn">Assign speaker</button>
+            <button type="button" class="mode-btn" data-mode="drag" id="modeDragBtn">Move words</button>
+          </div>
+          <span class="mode-hint" id="modeHint">Select text to reassign speaker.</span>
+        </section>
 
         <div id="linkPromptBanner" class="restore-banner" hidden>
           <span id="linkPromptText">Link the project folder so edits save automatically.</span>
@@ -535,7 +619,18 @@ enum HtmlExporter {
         const speakerAssignOptions = document.getElementById("speakerAssignOptions");
         let pendingSpeakerAssignRefs = [];
         let canonicalWordBank = null;
+        let wordDragState = null;
+        let suppressNextWordClick = false;
+        let editMode = "assign";
         const UTTERANCE_GAP_SECONDS = 1.5;
+        const MODE_HINTS = {
+          assign: "Select text to reassign speaker.",
+          drag: "Drag words to move them — timings stay attached.",
+        };
+
+        const modeAssignBtn = document.getElementById("modeAssignBtn");
+        const modeDragBtn = document.getElementById("modeDragBtn");
+        const modeHint = document.getElementById("modeHint");
 
         function defaultSpeakerName(id) {
           const match = id.match(/speaker_(\\d+)/);
@@ -1357,6 +1452,33 @@ enum HtmlExporter {
           pendingSpeakerAssignRefs = [];
         }
 
+        function isDragMode() {
+          return editMode === "drag";
+        }
+
+        function isAssignMode() {
+          return editMode === "assign";
+        }
+
+        function updateEditModeUI() {
+          modeAssignBtn.classList.toggle("active", isAssignMode());
+          modeDragBtn.classList.toggle("active", isDragMode());
+          modeHint.textContent = MODE_HINTS[editMode] || "";
+          document.body.dataset.editMode = editMode;
+        }
+
+        function setEditMode(mode) {
+          if (mode !== "assign" && mode !== "drag") return;
+          if (editMode === mode) return;
+          editMode = mode;
+          hideSpeakerAssignMenu();
+          clearWordDropIndicators();
+          wordDragState = null;
+          window.getSelection()?.removeAllRanges();
+          updateEditModeUI();
+          renderTranscript();
+        }
+
         function makeUtteranceFromWords(speakerId, words) {
           return {
             speakerId,
@@ -1367,8 +1489,9 @@ enum HtmlExporter {
           };
         }
 
-        function regroupUtterancesFromWords(allWords) {
+        function regroupUtterancesFromWords(allWords, options = {}) {
           if (!allWords.length) return [];
+          const respectTimeGaps = options.respectTimeGaps !== false;
           const grouped = [];
           let currentSpeaker = allWords[0].speakerId;
           let currentWords = [allWords[0]];
@@ -1376,7 +1499,10 @@ enum HtmlExporter {
           for (let index = 1; index < allWords.length; index++) {
             const word = allWords[index];
             const gap = word.startTime - currentWords[currentWords.length - 1].endTime;
-            if (word.speakerId !== currentSpeaker || gap > UTTERANCE_GAP_SECONDS) {
+            if (
+              word.speakerId !== currentSpeaker ||
+              (respectTimeGaps && gap > UTTERANCE_GAP_SECONDS)
+            ) {
               grouped.push(makeUtteranceFromWords(currentSpeaker, currentWords));
               currentSpeaker = word.speakerId;
               currentWords = [word];
@@ -1387,6 +1513,243 @@ enum HtmlExporter {
 
           grouped.push(makeUtteranceFromWords(currentSpeaker, currentWords));
           return grouped;
+        }
+
+        function flattenUtterancesToWordsInOrder() {
+          const items = [];
+          utterances.forEach((utterance, utteranceIndex) => {
+            utterance.words.forEach((word, wordIndex) => {
+              items.push({
+                utteranceIndex,
+                wordIndex,
+                word: {
+                  ...word,
+                  speakerId: word.speakerId ?? utterance.speakerId,
+                },
+              });
+            });
+          });
+          return items;
+        }
+
+        function flatIndexForWordRef(utteranceIndex, wordIndex) {
+          let index = 0;
+          for (let u = 0; u < utteranceIndex; u++) {
+            index += utterances[u].words.length;
+          }
+          return index + wordIndex;
+        }
+
+        function moveWordRefsToFlatIndex(refs, targetFlatIndex, targetSpeakerId) {
+          if (!refs.length) return false;
+
+          const items = flattenUtterancesToWordsInOrder();
+          const sourceIndices = refs
+            .map((ref) => flatIndexForWordRef(ref.utteranceIndex, ref.wordIndex))
+            .filter((index, position, all) => all.indexOf(index) === position)
+            .sort((a, b) => a - b);
+
+          if (!sourceIndices.length) return false;
+
+          const minSource = sourceIndices[0];
+          const maxSource = sourceIndices[sourceIndices.length - 1];
+          if (targetFlatIndex >= minSource && targetFlatIndex <= maxSource + 1) {
+            return false;
+          }
+
+          let adjustedTarget = targetFlatIndex;
+          for (const sourceIndex of sourceIndices) {
+            if (sourceIndex < targetFlatIndex) adjustedTarget--;
+          }
+
+          const movingSet = new Set(sourceIndices);
+          const movingWords = sourceIndices.map((index) => ({ ...items[index].word }));
+          const remaining = items
+            .filter((_, index) => !movingSet.has(index))
+            .map((item) => ({ ...item.word }));
+
+          remaining.splice(
+            adjustedTarget,
+            0,
+            ...movingWords.map((word) => ({
+              ...word,
+              speakerId: targetSpeakerId,
+            }))
+          );
+
+          utterances = regroupUtterancesFromWords(remaining, { respectTimeGaps: false });
+          syncWordBankFromUtterances();
+          return true;
+        }
+
+        function refsForWordDrag(utteranceIndex, wordIndex) {
+          const selected = getSelectedWordRefs();
+          const key = `${utteranceIndex}:${wordIndex}`;
+          if (selected.some((ref) => `${ref.utteranceIndex}:${ref.wordIndex}` === key)) {
+            return selected.slice().sort((a, b) => {
+              return (
+                flatIndexForWordRef(a.utteranceIndex, a.wordIndex) -
+                flatIndexForWordRef(b.utteranceIndex, b.wordIndex)
+              );
+            });
+          }
+          return [{ utteranceIndex, wordIndex }];
+        }
+
+        function clearWordDropIndicators() {
+          transcriptEl.querySelectorAll(".word.drop-before, .word-insert-gap.drop-active").forEach((node) => {
+            node.classList.remove("drop-before", "drop-active");
+          });
+        }
+
+        function insertWordAt(utteranceIndex, insertIndex) {
+          closeActiveEditor(true);
+          hideSpeakerAssignMenu();
+          const utterance = utterances[utteranceIndex];
+
+          if (!utterance.words.length) {
+            const newWord = {
+              word: "",
+              startTime: utterance.startTime,
+              endTime: Math.max(utterance.endTime, utterance.startTime + 0.01),
+              confidence: 1,
+              speakerId: utterance.speakerId,
+            };
+            utterance.words.push(newWord);
+            rebuildUtteranceText(utteranceIndex);
+            syncWordBankFromUtterances();
+            markDirty();
+            scheduleWriteToLinkedFile();
+            renderTranscript();
+            const span = transcriptEl.querySelector(
+              `.word[data-utterance-index="${utteranceIndex}"][data-word-index="0"]`
+            );
+            if (span) startWordEdit(span, utteranceIndex, 0);
+            return;
+          }
+
+          const refIndex = insertIndex < utterance.words.length
+            ? insertIndex
+            : utterance.words.length - 1;
+          const referenceWord = utterance.words[refIndex];
+          const newWord = {
+            word: "",
+            startTime: referenceWord.startTime,
+            endTime: referenceWord.endTime,
+            confidence: referenceWord.confidence ?? 1,
+            speakerId: referenceWord.speakerId ?? utterance.speakerId,
+          };
+
+          utterance.words.splice(insertIndex, 0, newWord);
+
+          rebuildUtteranceText(utteranceIndex);
+          syncWordBankFromUtterances();
+          markDirty();
+          scheduleWriteToLinkedFile();
+          renderTranscript();
+
+          const span = transcriptEl.querySelector(
+            `.word[data-utterance-index="${utteranceIndex}"][data-word-index="${insertIndex}"]`
+          );
+          if (span) startWordEdit(span, utteranceIndex, insertIndex);
+        }
+
+        function handleInsertGapDragOver(event) {
+          if (!isDragMode() || !wordDragState || activeEditor) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          clearWordDropIndicators();
+          event.currentTarget.classList.add("drop-active");
+        }
+
+        function handleInsertGapDrop(event, utteranceIndex, insertIndex) {
+          if (!isDragMode() || !wordDragState || activeEditor) return;
+          event.preventDefault();
+          event.stopPropagation();
+          clearWordDropIndicators();
+          const targetFlatIndex = flatIndexForWordRef(utteranceIndex, insertIndex);
+          const targetSpeakerId = utterances[utteranceIndex].speakerId;
+          const moved = moveWordRefsToFlatIndex(wordDragState.refs, targetFlatIndex, targetSpeakerId);
+          wordDragState = null;
+          if (moved) {
+            window.getSelection()?.removeAllRanges();
+            markDirty();
+            scheduleWriteToLinkedFile();
+            renderTranscript();
+          }
+        }
+
+        function createWordInsertGap(utteranceIndex, insertIndex) {
+          const gap = document.createElement("span");
+          gap.className = "word-insert-gap";
+          gap.title = isDragMode()
+            ? "Click to add a word · Drop to move here"
+            : "Click to add a word";
+          gap.addEventListener("click", (event) => {
+            event.stopPropagation();
+            if (activeEditor || wordDragState) return;
+            insertWordAt(utteranceIndex, insertIndex);
+          });
+          if (isDragMode()) {
+            gap.addEventListener("dragover", handleInsertGapDragOver);
+            gap.addEventListener("dragleave", () => {
+              gap.classList.remove("drop-active");
+            });
+            gap.addEventListener("drop", (event) => {
+              handleInsertGapDrop(event, utteranceIndex, insertIndex);
+            });
+          }
+          return gap;
+        }
+
+        function handleWordDragStart(event, utteranceIndex, wordIndex) {
+          if (!isDragMode() || activeEditor) {
+            event.preventDefault();
+            return;
+          }
+          hideSpeakerAssignMenu();
+          const refs = refsForWordDrag(utteranceIndex, wordIndex);
+          wordDragState = { refs };
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData(
+            "text/plain",
+            refs.map((ref) => `${ref.utteranceIndex}:${ref.wordIndex}`).join(",")
+          );
+          event.currentTarget.classList.add("dragging");
+        }
+
+        function handleWordDragEnd(event) {
+          event.currentTarget.classList.remove("dragging");
+          clearWordDropIndicators();
+          wordDragState = null;
+          suppressNextWordClick = true;
+        }
+
+        function handleWordDragOver(event, utteranceIndex, wordIndex) {
+          if (!isDragMode() || !wordDragState || activeEditor) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "move";
+          clearWordDropIndicators();
+          event.currentTarget.classList.add("drop-before");
+        }
+
+        function handleWordDrop(event, utteranceIndex, wordIndex) {
+          if (!isDragMode() || !wordDragState || activeEditor) return;
+          event.preventDefault();
+          event.stopPropagation();
+          clearWordDropIndicators();
+          const targetFlatIndex = flatIndexForWordRef(utteranceIndex, wordIndex);
+          const targetSpeakerId = utterances[utteranceIndex].speakerId;
+          const moved = moveWordRefsToFlatIndex(wordDragState.refs, targetFlatIndex, targetSpeakerId);
+          wordDragState = null;
+          if (moved) {
+            window.getSelection()?.removeAllRanges();
+            markDirty();
+            scheduleWriteToLinkedFile();
+            renderTranscript();
+          }
         }
 
         function getSelectedWordRefs() {
@@ -1503,7 +1866,7 @@ enum HtmlExporter {
         }
 
         function handleTranscriptSelection() {
-          if (activeEditor) return;
+          if (!isAssignMode() || activeEditor) return;
           const refs = getSelectedWordRefs();
           if (!refs.length) {
             hideSpeakerAssignMenu();
@@ -1732,18 +2095,39 @@ enum HtmlExporter {
 
             const wordsEl = document.createElement("div");
             wordsEl.className = "words";
+            wordsEl.appendChild(createWordInsertGap(index, 0));
             utterance.words.forEach((word, wordIndex) => {
               const span = document.createElement("span");
               span.className = "word";
               span.textContent = word.word;
+              span.draggable = isDragMode();
               span.dataset.utteranceIndex = String(index);
               span.dataset.wordIndex = String(wordIndex);
               span.dataset.start = String(word.startTime);
               span.dataset.end = String(word.endTime);
-              span.title = "Left-click to edit · Right-click to play · Select to reassign speaker";
+              span.title = isDragMode()
+                ? "Left-click to edit · Right-click to play · Drag to move"
+                : "Left-click to edit · Right-click to play · Select to reassign speaker";
+
+              if (isDragMode()) {
+                span.addEventListener("dragstart", (event) => {
+                  handleWordDragStart(event, index, wordIndex);
+                });
+                span.addEventListener("dragend", handleWordDragEnd);
+                span.addEventListener("dragover", (event) => {
+                  handleWordDragOver(event, index, wordIndex);
+                });
+                span.addEventListener("drop", (event) => {
+                  handleWordDrop(event, index, wordIndex);
+                });
+              }
 
               span.addEventListener("click", (event) => {
                 event.stopPropagation();
+                if (suppressNextWordClick) {
+                  suppressNextWordClick = false;
+                  return;
+                }
                 if (span.isContentEditable) return;
                 startWordEdit(span, index, wordIndex);
               });
@@ -1755,9 +2139,7 @@ enum HtmlExporter {
               });
 
               wordsEl.appendChild(span);
-              if (wordIndex < utterance.words.length - 1) {
-                wordsEl.appendChild(document.createTextNode(" "));
-              }
+              wordsEl.appendChild(createWordInsertGap(index, wordIndex + 1));
             });
 
             wordsEl.addEventListener("dblclick", (event) => {
@@ -1780,8 +2162,12 @@ enum HtmlExporter {
         }
 
         transcriptEl.addEventListener("mouseup", () => {
+          if (!isAssignMode()) return;
           window.setTimeout(handleTranscriptSelection, 0);
         });
+
+        modeAssignBtn.addEventListener("click", () => setEditMode("assign"));
+        modeDragBtn.addEventListener("click", () => setEditMode("drag"));
 
         document.addEventListener("mousedown", (event) => {
           if (!speakerAssignMenu.hidden && !speakerAssignMenu.contains(event.target)) {
@@ -1881,6 +2267,7 @@ enum HtmlExporter {
         audio.addEventListener("timeupdate", updateHighlight);
         audio.addEventListener("loadedmetadata", updateHighlight);
 
+        updateEditModeUI();
         renderSpeakers();
         renderTranscript();
         syncWordBankFromUtterances();
