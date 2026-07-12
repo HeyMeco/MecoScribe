@@ -1943,7 +1943,7 @@ enum HtmlExporter {
           });
 
           allWords.sort((a, b) => a.startTime - b.startTime);
-          utterances = regroupUtterancesFromWords(allWords);
+          utterances = regroupUtterancesFromWords(allWords, { respectTimeGaps: false });
           syncWordBankFromUtterances();
           window.getSelection()?.removeAllRanges();
           hideSpeakerAssignMenu();
