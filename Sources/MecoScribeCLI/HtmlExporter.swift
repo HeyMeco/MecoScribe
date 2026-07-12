@@ -679,6 +679,13 @@ enum HtmlExporter {
           return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
         }
 
+        function wordTooltip(startTime, dragMode = false) {
+          const actions = dragMode
+            ? "Left-click to edit · Right-click to play · Drag to move"
+            : "Left-click to edit · Right-click to play · Select to reassign speaker";
+          return `${formatTime(startTime)} · ${actions}`;
+        }
+
         function updateSaveStatus() {
           if (rootDirHandle && linkedFolderName) {
             if (isWriting) {
@@ -2232,9 +2239,7 @@ enum HtmlExporter {
               span.dataset.wordIndex = String(wordIndex);
               span.dataset.start = String(word.startTime);
               span.dataset.end = String(word.endTime);
-              span.title = isDragMode()
-                ? "Left-click to edit · Right-click to play · Drag to move"
-                : "Left-click to edit · Right-click to play · Select to reassign speaker";
+              span.title = wordTooltip(word.startTime, isDragMode());
 
               if (isDragMode()) {
                 span.addEventListener("dragstart", (event) => {
