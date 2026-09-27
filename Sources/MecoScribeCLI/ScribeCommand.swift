@@ -7,9 +7,9 @@ enum ScribeCommand {
     struct ParsedArgs {
         var audioFile: String?
         var outputDir: String?
-        var diarizationMode: ScribeProcessor.DiarizationMode = .offline
+        var diarizationMode: ScribeProcessor.DiarizationMode = .nemotron3
         var threshold: Float = 0.6
-        var transcriptionModel: ScribeProcessor.TranscriptionModel = .parakeet(.v3)
+        var transcriptionModel: ScribeProcessor.TranscriptionModel = .parakeet(.ultra)
         var modelsDir: String?
         var modelDir: String?
         var language: String = "auto"
@@ -267,14 +267,14 @@ enum ScribeCommand {
             --both                       If .txt exists, re-transcribe and overwrite both
             --models-dir <dir>           Model cache directory (default: ./models)
             --mode <streaming|offline|nemotron3>
-                                         Diarization mode (default: offline).
-                                         nemotron3 uses NVIDIA Nemotron 3 (Apple Silicon)
+                                         Diarization mode (default: nemotron3).
+                                         nemotron3 uses NVIDIA Nemotron 3 (Apple Silicon);
+                                         offline is the VBx pipeline
             --threshold <float>          Speaker clustering / activity threshold (default: 0.6)
             --model-version <v2|v3|ultra|nemotron3>
-                                         ASR model: v3 multilingual Parakeet (default),
-                                         ultra (more accurate Parakeet, same languages),
-                                         v2 English-only, or nemotron3 (Nemotron 3.5 streaming,
-                                         Apple Silicon)
+                                         ASR model: ultra multilingual Parakeet (default),
+                                         v3 multilingual Parakeet, v2 English-only, or
+                                         nemotron3 (Nemotron 3.5 streaming, Apple Silicon)
             --language <code>            Nemotron 3.5 language hint (default: auto).
                                          Examples: en-US, de-DE, fr-FR, ja-JP, zh-CN
             --chunk-ms <560|1120|2240|4480>
@@ -296,8 +296,8 @@ enum ScribeCommand {
             mecoscribe meeting.wav
             mecoscribe meeting.wav --html-only
             mecoscribe meeting.wav --both
-            mecoscribe meeting.wav --model-version ultra
-            mecoscribe meeting.wav --mode nemotron3 --model-version nemotron3
+            mecoscribe meeting.wav --mode offline --model-version v3
+            mecoscribe meeting.wav --model-version nemotron3
             mecoscribe interview.mp3 --output-dir ./output --model-version nemotron3 --language de-DE
 
         Requirements:

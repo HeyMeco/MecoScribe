@@ -6,9 +6,9 @@ enum ScribeProcessor {
     private static let logger = AppLogger(category: "MecoScribe")
 
     struct Options {
-        var diarizationMode: DiarizationMode = .offline
+        var diarizationMode: DiarizationMode = .nemotron3
         var threshold: Float = 0.6
-        var transcriptionModel: TranscriptionModel = .parakeet(.v3)
+        var transcriptionModel: TranscriptionModel = .parakeet(.ultra)
         var modelsDirectory: URL
         var modelDir: String?
         /// Nemotron 3.5 language hint (`en-US`, `de-DE`, `auto`, …).
