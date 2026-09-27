@@ -2,6 +2,8 @@ import FluidAudio
 import Foundation
 
 enum ScribeCommand {
+    static let version = "1.0.1"
+
     private static let logger = AppLogger(category: "MecoScribe")
 
     struct ParsedArgs {
@@ -20,6 +22,11 @@ enum ScribeCommand {
     }
 
     static func run(arguments: [String]) async {
+        if arguments.contains("--version") || arguments.contains("-V") {
+            print(version)
+            exit(0)
+        }
+
         if arguments.contains("--help") || arguments.contains("-h") {
             printUsage()
             exit(0)
@@ -256,7 +263,7 @@ enum ScribeCommand {
 
     private static func printUsage() {
         let usage = """
-        MecoScribe — diarized transcription powered by FluidAudio
+        MecoScribe \(version) — diarized transcription powered by FluidAudio
 
         Usage:
             mecoscribe <audio_file> [options]
@@ -282,6 +289,7 @@ enum ScribeCommand {
             --model-dir <path>           Local ASR model directory (overrides cache)
             --speakers <n1,n2,...>       Preset speaker display names
             -h, --help                   Show this help
+            -V, --version                Show version
 
         When <filename>.txt already exists, you will be asked whether to regenerate
         HTML only or re-transcribe both outputs (unless --html-only or --both is set).
