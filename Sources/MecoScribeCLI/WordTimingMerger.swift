@@ -13,8 +13,12 @@ enum WordTimingMerger {
 
         for timing in tokenTimings {
             let token = timing.token
+            if token.isEmpty || token == "<blank>" || token == "<pad>" {
+                continue
+            }
 
-            if token.hasPrefix(" ") || token.hasPrefix("\n") || token.hasPrefix("\t") {
+            let startsNewWord = isWordBoundary(token)
+            if startsNewWord {
                 if !currentWord.isEmpty, let startTime = currentStartTime {
                     wordTimings.append(
                         WordTiming(
@@ -25,7 +29,7 @@ enum WordTimingMerger {
                         ))
                 }
 
-                currentWord = token.trimmingCharacters(in: .whitespacesAndNewlines)
+                currentWord = stripWordBoundaryPrefix(token)
                 currentStartTime = timing.startTime
                 currentEndTime = timing.endTime
                 currentConfidences = [timing.confidence]
@@ -54,5 +58,17 @@ enum WordTimingMerger {
 
     private static func averageConfidence(_ confidences: [Float]) -> Float {
         confidences.isEmpty ? 0.0 : confidences.reduce(0, +) / Float(confidences.count)
+    }
+
+    /// SentencePiece word starts use `▁`; Parakeet token timings use a leading space.
+    private static func isWordBoundary(_ token: String) -> Bool {
+        token.hasPrefix(" ") || token.hasPrefix("\n") || token.hasPrefix("\t") || token.hasPrefix("\u{2581}")
+    }
+
+    private static func stripWordBoundaryPrefix(_ token: String) -> String {
+        if token.hasPrefix("\u{2581}") {
+            return String(token.dropFirst())
+        }
+        return token.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

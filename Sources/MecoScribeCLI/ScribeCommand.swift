@@ -9,9 +9,11 @@ enum ScribeCommand {
         var outputDir: String?
         var diarizationMode: ScribeProcessor.DiarizationMode = .offline
         var threshold: Float = 0.6
-        var modelVersion: AsrModelVersion = .v3  // multilingual (default)
+        var transcriptionModel: ScribeProcessor.TranscriptionModel = .parakeet(.v3)
         var modelsDir: String?
         var modelDir: String?
+        var language: String = "auto"
+        var chunkMs: Int = 2240
         var speakerNames: [String: String] = [:]
         var htmlOnly = false
         var both = false
@@ -84,9 +86,11 @@ enum ScribeCommand {
                 let options = ScribeProcessor.Options(
                     diarizationMode: parsed.diarizationMode,
                     threshold: parsed.threshold,
-                    modelVersion: parsed.modelVersion,
+                    transcriptionModel: parsed.transcriptionModel,
                     modelsDirectory: modelsDirectory,
-                    modelDir: parsed.modelDir
+                    modelDir: parsed.modelDir,
+                    language: parsed.language,
+                    chunkMs: parsed.chunkMs
                 )
 
                 let result = try await ScribeProcessor.process(audioPath: audioFile, options: options)
@@ -139,7 +143,10 @@ enum ScribeCommand {
                     return nil
                 }
                 guard let mode = ScribeProcessor.DiarizationMode(rawValue: args[i + 1].lowercased()) else {
-                    fputs("ERROR: Invalid mode '\(args[i + 1])'. Use 'streaming' or 'offline'.\n", stderr)
+                    fputs(
+                        "ERROR: Invalid mode '\(args[i + 1])'. Use 'streaming', 'offline', or 'nemotron3'.\n",
+                        stderr
+                    )
                     return nil
                 }
                 parsed.diarizationMode = mode
@@ -158,13 +165,39 @@ enum ScribeCommand {
                 }
                 switch args[i + 1].lowercased() {
                 case "v2", "2":
-                    parsed.modelVersion = .v2
+                    parsed.transcriptionModel = .parakeet(.v2)
                 case "v3", "3":
-                    parsed.modelVersion = .v3
+                    parsed.transcriptionModel = .parakeet(.v3)
+                case "ultra":
+                    parsed.transcriptionModel = .parakeet(.ultra)
+                case "nemotron3", "nemotron":
+                    parsed.transcriptionModel = .nemotron3
                 default:
-                    fputs("ERROR: Invalid model version '\(args[i + 1])'. Use 'v2' or 'v3'.\n", stderr)
+                    fputs(
+                        "ERROR: Invalid model version '\(args[i + 1])'. Use 'v2', 'v3', 'ultra', or 'nemotron3'.\n",
+                        stderr
+                    )
                     return nil
                 }
+                i += 1
+            case "--language":
+                guard i + 1 < args.count else {
+                    fputs("ERROR: Missing value for --language\n", stderr)
+                    return nil
+                }
+                parsed.language = args[i + 1]
+                i += 1
+            case "--chunk-ms":
+                guard i + 1 < args.count, let value = Int(args[i + 1]) else {
+                    fputs("ERROR: Invalid --chunk-ms value\n", stderr)
+                    return nil
+                }
+                let allowed = [560, 1120, 2240, 4480]
+                guard allowed.contains(value) else {
+                    fputs("ERROR: --chunk-ms must be one of 560, 1120, 2240, 4480.\n", stderr)
+                    return nil
+                }
+                parsed.chunkMs = value
                 i += 1
             case "--models-dir":
                 guard i + 1 < args.count else {
@@ -209,6 +242,15 @@ enum ScribeCommand {
             return nil
         }
 
+        if case .parakeet = parsed.transcriptionModel {
+            let languageChanged = parsed.language != "auto"
+            let chunkChanged = parsed.chunkMs != 2240
+            if languageChanged || chunkChanged {
+                fputs("ERROR: --language and --chunk-ms apply only to --model-version nemotron3.\n", stderr)
+                return nil
+            }
+        }
+
         return parsed
     }
 
@@ -224,9 +266,19 @@ enum ScribeCommand {
             --html-only                  If .txt exists, regenerate HTML only
             --both                       If .txt exists, re-transcribe and overwrite both
             --models-dir <dir>           Model cache directory (default: ./models)
-            --mode <streaming|offline>   Diarization mode (default: offline)
-            --threshold <float>          Speaker clustering threshold (default: 0.6)
-            --model-version <v2|v3>      ASR model: v3 multilingual (default), v2 English-only
+            --mode <streaming|offline|nemotron3>
+                                         Diarization mode (default: offline).
+                                         nemotron3 uses NVIDIA Nemotron 3 (Apple Silicon)
+            --threshold <float>          Speaker clustering / activity threshold (default: 0.6)
+            --model-version <v2|v3|ultra|nemotron3>
+                                         ASR model: v3 multilingual Parakeet (default),
+                                         ultra (more accurate Parakeet, same languages),
+                                         v2 English-only, or nemotron3 (Nemotron 3.5 streaming,
+                                         Apple Silicon)
+            --language <code>            Nemotron 3.5 language hint (default: auto).
+                                         Examples: en-US, de-DE, fr-FR, ja-JP, zh-CN
+            --chunk-ms <560|1120|2240|4480>
+                                         Nemotron 3.5 latency tier (default: 2240)
             --model-dir <path>           Local ASR model directory (overrides cache)
             --speakers <n1,n2,...>       Preset speaker display names
             -h, --help                   Show this help
@@ -244,7 +296,9 @@ enum ScribeCommand {
             mecoscribe meeting.wav
             mecoscribe meeting.wav --html-only
             mecoscribe meeting.wav --both
-            mecoscribe interview.mp3 --output-dir ./output
+            mecoscribe meeting.wav --model-version ultra
+            mecoscribe meeting.wav --mode nemotron3 --model-version nemotron3
+            mecoscribe interview.mp3 --output-dir ./output --model-version nemotron3 --language de-DE
 
         Requirements:
             macOS 14+ with Apple Silicon recommended. Models download automatically

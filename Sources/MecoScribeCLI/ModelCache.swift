@@ -39,6 +39,10 @@ enum ModelCache {
             return .parakeetTdtCtc110m
         case .tdtJa:
             return .parakeetJa
+        case .redux:
+            return .parakeetRedux
+        case .ultra:
+            return .parakeetUltra
         }
     }
 }
