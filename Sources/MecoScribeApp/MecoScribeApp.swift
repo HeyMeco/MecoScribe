@@ -38,6 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         Self.applyIconWhenUnbundled()
         NSApp.activate(ignoringOtherApps: true)
+        Task { @MainActor in
+            // Let the first window appear before any update alert.
+            try? await Task.sleep(for: .seconds(3))
+            await UpdatePrompt.checkAutomaticallyIfDue()
+        }
     }
 
     /// The app bundle gets its icon from `CFBundleIconFile`. A bare executable has no
@@ -51,6 +56,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let icon = NSImage(contentsOf: url)
         else { return }
         NSApp.applicationIconImage = icon
+    }
+
+    /// Clicking the Dock icon (or opening the app again) with every window closed
+    /// brings back a main window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            if sender.windows.contains(where: { $0.isVisible && $0.canBecomeMain }) { return }
+            // Minimized windows report canBecomeMain == false, so check them separately.
+            if let minimized = sender.windows.first(where: \.isMiniaturized) {
+                minimized.deminiaturize(nil)
+            } else {
+                AppModel.shared.openMainWindow?()
+            }
+        }
+        return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -86,6 +106,13 @@ struct AppCommands: Commands {
     private var editor: TranscriptEditorModel? { workspace?.editor }
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                Task { await UpdatePrompt.checkInteractively() }
+            }
+            .disabled(UpdateChecker.shared.state == .checking)
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("New Transcription…") {
                 route(.newTranscription(audio: nil))

@@ -14,6 +14,9 @@ enum Preferences {
     static let transcriptFontSize = "transcriptFontSize"
     static let showVideo = "showVideo"
     static let videoPaneHeight = "videoPaneHeight"
+    static let checkForUpdatesAutomatically = "checkForUpdatesAutomatically"
+    static let lastUpdateCheck = "lastUpdateCheck"
+    static let skippedUpdateVersion = "skippedUpdateVersion"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -28,6 +31,7 @@ enum Preferences {
             transcriptFontSize: 15.0,
             showVideo: true,
             videoPaneHeight: 260.0,
+            checkForUpdatesAutomatically: true,
         ])
     }
 

@@ -11,6 +11,10 @@ struct WindowRoot: View {
             .frame(minWidth: 760, minHeight: 560)
             .focusedSceneValue(\.workspace, workspace)
             .onAppear {
+                if AppModel.shared.openMainWindow == nil {
+                    let openWindow = openWindow
+                    AppModel.shared.openMainWindow = { openWindow(id: Self.sceneID) }
+                }
                 if let request = AppModel.shared.takePendingRequest() {
                     workspace.handle(request)
                 }

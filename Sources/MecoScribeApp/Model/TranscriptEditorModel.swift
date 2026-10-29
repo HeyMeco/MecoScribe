@@ -93,6 +93,9 @@ final class TranscriptEditorModel {
     private(set) var draggedWords: Set<Int> = []
     private(set) var dragLocation: CGPoint?
     @ObservationIgnored private var interaction: Interaction?
+    /// Where the current drag began. SwiftUI can cancel a drag without reporting its
+    /// end, so a different start point means a new drag and a stale one is dropped.
+    @ObservationIgnored private var interactionStart: CGPoint?
     @ObservationIgnored private var lastDragEndedAt = Date.distantPast
     var speakerSheet: SpeakerSheet?
     var mergeSourceSpeaker: String?
@@ -248,7 +251,11 @@ final class TranscriptEditorModel {
         flatStarts = starts
         totalWords = count
         wordTimes = times
-        frames.reset()
+        // Keep recorded word positions: rows whose content changed are laid out again
+        // and overwrite theirs, while unchanged rows are not re-rendered (they are
+        // equatable) and would otherwise be left with none, breaking selection and
+        // moving until the next full re-layout.
+        frames.discardRows(from: utterances.count)
         updateActiveWords(at: player.currentTime)
     }
 
@@ -299,6 +306,7 @@ final class TranscriptEditorModel {
         draggedWords.removeAll()
         dragLocation = nil
         interaction = nil
+        interactionStart = nil
     }
 
     // MARK: Playback sync
@@ -423,7 +431,11 @@ final class TranscriptEditorModel {
     // MARK: Mouse drags (range selection / moving words)
 
     func dragChanged(start: CGPoint, location: CGPoint) {
+        if interaction != nil, start != interactionStart {
+            resetDrag()
+        }
         if interaction == nil {
+            interactionStart = start
             // A drag inside the open text field selects text there; anywhere else it
             // commits the edit and selects (or moves) words.
             if dragStartsInsideEditor(start) {
@@ -473,13 +485,18 @@ final class TranscriptEditorModel {
         }
     }
 
+    private func resetDrag() {
+        interaction = nil
+        interactionStart = nil
+        dropTarget = nil
+        draggedWords.removeAll()
+        dragLocation = nil
+    }
+
     func dragEnded(location: CGPoint) {
         defer {
             lastDragEndedAt = Date()
-            interaction = nil
-            dropTarget = nil
-            draggedWords.removeAll()
-            dragLocation = nil
+            resetDrag()
         }
         switch interaction {
         case .selecting:

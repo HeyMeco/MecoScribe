@@ -3,7 +3,7 @@ import MecoScribeCore
 import Foundation
 
 enum ScribeCommand {
-    static let version = "2.0.0"
+    static let version = MecoScribeVersion.current
 
     private static let logger = AppLogger(category: "MecoScribe")
 

@@ -370,6 +370,72 @@ struct TranscriptInteractionTests {
         #expect(model.selection.isEmpty)
     }
 
+    @Test func newDragRecoversFromOneThatNeverEnded() throws {
+        let model = try makeModel()
+        // A drag inside an open editor that SwiftUI then cancels without onEnded.
+        model.startWordEdit(1)
+        model.dragChanged(start: CGPoint(x: 55, y: 10), location: CGPoint(x: 85, y: 10))
+        model.cancelEdit()
+        // The next drag starts elsewhere and must select normally.
+        model.dragChanged(start: CGPoint(x: 10, y: 50), location: CGPoint(x: 60, y: 50))
+        model.dragEnded(location: CGPoint(x: 60, y: 50))
+        #expect(model.selection == [3, 4])
+        #expect(model.assignMenuRect != nil)
+
+        // Same in Move Mode: an abandoned move must not swallow the next drag.
+        model.setEditMode(.drag)
+        layOut(model)
+        model.dragChanged(start: CGPoint(x: 10, y: 10), location: CGPoint(x: 20, y: 50))
+        #expect(!model.draggedWords.isEmpty)
+        model.dragChanged(start: CGPoint(x: 60, y: 10), location: CGPoint(x: 110, y: 10))
+        #expect(model.draggedWords == [1])
+    }
+
+    @Test func backgroundClickResetsEverything() throws {
+        let model = try makeModel()
+        model.dragChanged(start: CGPoint(x: 10, y: 10), location: CGPoint(x: 60, y: 10))
+        model.clickBackground() // the drag never reported its end
+        #expect(model.selection.isEmpty)
+        #expect(model.assignMenuRect == nil)
+        model.startWordEdit(0)
+        model.clickBackground()
+        #expect(model.editing == nil)
+        model.dragChanged(start: CGPoint(x: 10, y: 10), location: CGPoint(x: 110, y: 10))
+        model.dragEnded(location: CGPoint(x: 110, y: 10))
+        #expect(model.selection == [0, 1, 2])
+    }
+
+    /// SwiftUI only lays out rows whose content changed, so after an edit the other
+    /// rows keep their recorded positions and must stay selectable and movable.
+    @Test func editsKeepUnchangedRowsInteractive() throws {
+        let model = try makeModel()
+        model.setEditMode(.drag)
+        layOut(model)
+        // Move "four" (row 1) to the end of its line: rows keep their frames.
+        model.dragChanged(start: CGPoint(x: 10, y: 50), location: CGPoint(x: 95, y: 50))
+        model.dragEnded(location: CGPoint(x: 95, y: 50))
+        #expect(model.utterances[1].text == "five four")
+        // No layout pass: row 0 never changed, so it is not re-rendered.
+        model.dragChanged(start: CGPoint(x: 10, y: 10), location: CGPoint(x: 140, y: 10))
+        model.dragEnded(location: CGPoint(x: 140, y: 10))
+        #expect(model.utterances[0].text == "two three one")
+
+        model.setEditMode(.assign)
+        model.startWordEdit(1)
+        model.editDraft = "TWO"
+        model.commitEdit()
+        model.dragChanged(start: CGPoint(x: 10, y: 50), location: CGPoint(x: 60, y: 50))
+        model.dragEnded(location: CGPoint(x: 60, y: 50))
+        #expect(model.selection == [3, 4])
+    }
+
+    @Test func removedRowsAreForgotten() throws {
+        let model = try makeModel()
+        model.deleteWords([3, 4]) // removes the second line
+        #expect(model.frames.containerFrames.keys.sorted() == [0])
+        #expect(model.frames.visibleRows == [0])
+    }
+
     @Test func detectsPlayingLineScrolledOutOfView() throws {
         let model = try makeModel()
         let frames = model.frames

@@ -20,6 +20,7 @@ struct TranscriptView: View {
     @State private var tracker = ScrollTracker()
     /// Where the playing line is when it is scrolled out of view; nil while visible.
     @State private var offscreenActiveEdge: VerticalEdge?
+    @State private var viewportHeight: CGFloat = 0
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -46,8 +47,6 @@ struct TranscriptView: View {
                     .overlay(alignment: .topLeading) {
                         TranscriptOverlay(model: model)
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.clickBackground() }
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 4, coordinateSpace: .named(transcriptSpace))
                             .onChanged { value in
@@ -61,13 +60,18 @@ struct TranscriptView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
                 .frame(maxWidth: 1000, alignment: .leading)
-                .frame(maxWidth: .infinity)
+                // Fill the whole viewport so a click anywhere off the words, including
+                // below the last line and in the margins, resets the editor.
+                .frame(maxWidth: .infinity, minHeight: viewportHeight, alignment: .top)
+                .contentShape(Rectangle())
+                .onTapGesture { clickBackground() }
             }
             .coordinateSpace(.named(viewportSpace))
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.size.height
             } action: { height in
                 tracker.viewportHeight = height
+                if viewportHeight != height { viewportHeight = height }
                 updateActiveVisibility()
             }
             .background(Color(nsColor: .windowBackgroundColor))
@@ -94,6 +98,15 @@ struct TranscriptView: View {
                     proxy.scrollTo(row, anchor: UnitPoint(x: 0.5, y: 0.3))
                 }
             }
+        }
+    }
+
+    /// Commits any open edit, clears the selection, popover and any stuck drag, and
+    /// takes keyboard focus away from text fields.
+    private func clickBackground() {
+        model.clickBackground()
+        if TextEditing.isActive {
+            NSApp.keyWindow?.makeFirstResponder(nil)
         }
     }
 

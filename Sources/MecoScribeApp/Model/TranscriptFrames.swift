@@ -18,9 +18,11 @@ final class TranscriptFrames {
     /// Word rects relative to their row's word-flow container.
     var wordRects: [Int: [CGRect]] = [:]
 
-    func reset() {
-        containerFrames.removeAll()
-        wordRects.removeAll()
+    /// Forgets rows at or past `count`, after the transcript lost lines.
+    func discardRows(from count: Int) {
+        containerFrames = containerFrames.filter { $0.key < count }
+        wordRects = wordRects.filter { $0.key < count }
+        visibleRows = visibleRows.filter { $0 < count }
     }
 
     private func visibleHits() -> [Hit] {

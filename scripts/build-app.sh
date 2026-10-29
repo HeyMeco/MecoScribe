@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="$(sed -n 's/.*static let version = "\(.*\)"/\1/p' Sources/MecoScribeCLI/ScribeCommand.swift)"
+VERSION="$(sed -n 's/.*static let current = "\(.*\)"/\1/p' Sources/MecoScribeCore/Version.swift)"
 APP="dist/MecoScribe.app"
 
 swift build -c release --product MecoScribeApp

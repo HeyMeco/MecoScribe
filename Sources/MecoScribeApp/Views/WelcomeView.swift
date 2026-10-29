@@ -42,6 +42,15 @@ struct WelcomeView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 Spacer()
+                if let release = UpdateChecker.shared.availableRelease {
+                    Button {
+                        UpdatePrompt.present(release, allowSkip: false)
+                    } label: {
+                        Label("MecoScribe \(release.version) is available", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.link)
+                    .padding(.bottom, 20)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {

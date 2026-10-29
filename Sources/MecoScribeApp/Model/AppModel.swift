@@ -19,6 +19,9 @@ final class AppModel {
     /// Requests for a window that has not appeared yet (consumed by the next new window).
     @ObservationIgnored private var pendingRequests: [WindowRequest] = []
     @ObservationIgnored private var editors: [WeakEditor] = []
+    /// Opens a new main window. Set from SwiftUI, which owns window creation; used by
+    /// the app delegate when the Dock icon is clicked with no window open.
+    @ObservationIgnored var openMainWindow: (() -> Void)?
 
     private struct WeakEditor {
         weak var model: TranscriptEditorModel?

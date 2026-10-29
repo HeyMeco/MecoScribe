@@ -18,6 +18,7 @@ Local **diarized transcription** for macOS, built on [FluidAudio](https://github
   - Rename, merge, add, and delete speakers. Delete selected words with ⌫.
   - Undo/redo (⌘Z / ⇧⌘Z), and "Discard All Edits", which can itself be undone.
 - **Playback**: word highlighting synced to the audio. ⌥-click a word, or right-click › Play from Here, to play from it. Space plays and pauses. Also skip ±5 s, a scrubber, playback speed, and an optional "follow playback" auto-scroll. When the line being played is scrolled out of view, a **Jump Back** button appears at the top right of the transcript. When the source is a video, the video plays in a pane above the transcript. Drag the bar under it to resize it, and hide it with the video button in the player bar or ⌥⌘V.
+- **Updates**: MecoScribe checks [GitHub Releases](https://github.com/HeyMeco/MecoScribe/releases) once a day and offers newer versions (Download, Later, or Skip This Version). Check any time with **MecoScribe › Check for Updates…**, or turn automatic checks off in Settings. Nothing is installed automatically.
 - **Saving**: edits save automatically to the `.mscribe` file. If another app changes it, a banner offers *Reload from File* or *Keep My Edits*. You can also export the `.txt`, the HTML viewer, or all three loose files (*Export Separate Files…*, the same layout the CLI writes).
 
 ### Models

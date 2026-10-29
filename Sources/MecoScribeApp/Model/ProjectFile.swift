@@ -214,9 +214,7 @@ enum AudioOverrides {
 }
 
 enum AppInfo {
-    static var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-    }
+    static var version: String { MecoScribeVersion.current }
 
     static var generator: String { "MecoScribe \(version)" }
 }
