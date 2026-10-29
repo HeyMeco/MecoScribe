@@ -1,7 +1,13 @@
 import Foundation
 
-enum TextExporter {
-    static func export(_ result: ScribeResult, speakerNames: [String: String], to path: String) throws {
+public enum TextExporter {
+    public static func export(_ result: ScribeResult, speakerNames: [String: String], to path: String) throws {
+        try text(for: result, speakerNames: speakerNames)
+            .write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    /// The plain-text transcript format shared by the CLI, the HTML viewer, and the app.
+    public static func text(for result: ScribeResult, speakerNames: [String: String]) -> String {
         var lines: [String] = []
         lines.append("MecoScribe Transcript")
         lines.append("Source: \(result.audioFile)")
@@ -17,10 +23,10 @@ enum TextExporter {
             lines.append("")
         }
 
-        try lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        return lines.joined(separator: "\n")
     }
 
-    private static func displayName(for speakerId: String) -> String {
+    public static func displayName(for speakerId: String) -> String {
         if speakerId.hasPrefix("speaker_") {
             let suffix = speakerId.dropFirst("speaker_".count)
             if let number = Int(suffix) {
@@ -30,8 +36,8 @@ enum TextExporter {
         return speakerId
     }
 
-    private static func formatTime(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded(.down))
+    public static func formatTime(_ seconds: TimeInterval) -> String {
+        let total = Int(max(0, seconds).rounded(.down))
         let hours = total / 3600
         let minutes = (total % 3600) / 60
         let secs = total % 60

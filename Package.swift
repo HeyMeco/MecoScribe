@@ -11,16 +11,40 @@ let package = Package(
             name: "mecoscribe",
             targets: ["MecoScribeCLI"]
         ),
+        .executable(
+            name: "MecoScribeApp",
+            targets: ["MecoScribeApp"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio.git", branch: "main"),
     ],
     targets: [
-        .executableTarget(
-            name: "MecoScribeCLI",
+        .target(
+            name: "MecoScribeCore",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ]
+        ),
+        .executableTarget(
+            name: "MecoScribeCLI",
+            dependencies: [
+                "MecoScribeCore",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+            ]
+        ),
+        .executableTarget(
+            name: "MecoScribeApp",
+            dependencies: [
+                "MecoScribeCore",
+            ],
+            resources: [
+                .copy("Resources/MecoScribe.icns"),
+            ]
+        ),
+        .testTarget(
+            name: "MecoScribeAppTests",
+            dependencies: ["MecoScribeApp", "MecoScribeCore"]
         ),
     ]
 )

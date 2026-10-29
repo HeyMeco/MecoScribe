@@ -1,19 +1,19 @@
 import Foundation
 
-struct TimingsSidecar: Codable, Sendable {
-    static let currentVersion = 1
-    static let fileExtension = "mecoscribe.json"
+public struct TimingsSidecar: Codable, Sendable {
+    public static let currentVersion = 1
+    public static let fileExtension = "mecoscribe.json"
 
-    let version: Int
-    let audioFile: String
-    let durationSeconds: TimeInterval
-    let speakerCount: Int
-    let speakerIds: [String]
-    let speakerNames: [String: String]
-    let utterances: [DiarizedUtterance]
-    let words: [DiarizedWord]?
+    public let version: Int
+    public let audioFile: String
+    public let durationSeconds: TimeInterval
+    public let speakerCount: Int
+    public let speakerIds: [String]
+    public let speakerNames: [String: String]
+    public let utterances: [DiarizedUtterance]
+    public let words: [DiarizedWord]?
 
-    init(result: ScribeResult, speakerNames: [String: String]) {
+    public init(result: ScribeResult, speakerNames: [String: String]) {
         version = Self.currentVersion
         audioFile = result.audioFile
         durationSeconds = result.durationSeconds
@@ -24,7 +24,7 @@ struct TimingsSidecar: Codable, Sendable {
         words = result.utterances.flatMap(\.words).sorted { $0.startTime < $1.startTime }
     }
 
-    var result: ScribeResult {
+    public var result: ScribeResult {
         ScribeResult(
             audioFile: audioFile,
             durationSeconds: durationSeconds,
@@ -34,40 +34,40 @@ struct TimingsSidecar: Codable, Sendable {
         )
     }
 
-    var canonicalWords: [DiarizedWord] {
+    public var canonicalWords: [DiarizedWord] {
         if let words, !words.isEmpty {
             return words.sorted { $0.startTime < $1.startTime }
         }
         return utterances.flatMap(\.words).sorted { $0.startTime < $1.startTime }
     }
 
-    static func path(forTxtPath txtPath: String) -> String {
+    public static func path(forTxtPath txtPath: String) -> String {
         let base = (txtPath as NSString).deletingPathExtension
         return (base as NSString).appendingPathExtension(fileExtension)!
     }
 
-    static func path(forHtmlPath htmlPath: String) -> String {
+    public static func path(forHtmlPath htmlPath: String) -> String {
         path(forTxtPath: (htmlPath as NSString).deletingPathExtension + ".txt")
     }
 
-    static func basename(forTxtPath txtPath: String) -> String {
+    public static func basename(forTxtPath txtPath: String) -> String {
         URL(fileURLWithPath: path(forTxtPath: txtPath)).lastPathComponent
     }
 
-    static func write(_ sidecar: TimingsSidecar, to path: String) throws {
+    public static func write(_ sidecar: TimingsSidecar, to path: String) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(sidecar)
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
-    static func read(from path: String) throws -> TimingsSidecar {
+    public static func read(from path: String) throws -> TimingsSidecar {
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         let decoder = JSONDecoder()
         return try decoder.decode(TimingsSidecar.self, from: data)
     }
 
-    static func merge(
+    public static func merge(
         txtPath: String,
         sidecar: TimingsSidecar,
         audioPath: String
@@ -193,13 +193,13 @@ struct TimingsSidecar: Codable, Sendable {
     }
 }
 
-struct ReconciledWords: Sendable {
-    let words: [DiarizedWord]
-    let consumed: Int
+public struct ReconciledWords: Sendable {
+    public let words: [DiarizedWord]
+    public let consumed: Int
 }
 
-enum WordTimingReconciler {
-    static func reconcileWithConsumed(
+public enum WordTimingReconciler {
+    public static func reconcileWithConsumed(
         text: String,
         speakerId: String,
         startTime: TimeInterval,
@@ -311,7 +311,7 @@ enum WordTimingReconciler {
         return ReconciledWords(words: aligned, consumed: templateIndex)
     }
 
-    static func reconcile(
+    public static func reconcile(
         text: String,
         speakerId: String,
         startTime: TimeInterval,

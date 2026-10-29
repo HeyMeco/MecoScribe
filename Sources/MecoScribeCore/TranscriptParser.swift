@@ -1,12 +1,17 @@
 import Foundation
 
-struct ParsedTranscript {
-    let result: ScribeResult
-    let speakerNames: [String: String]
+public struct ParsedTranscript: Sendable {
+    public let result: ScribeResult
+    public let speakerNames: [String: String]
+
+    public init(result: ScribeResult, speakerNames: [String: String]) {
+        self.result = result
+        self.speakerNames = speakerNames
+    }
 }
 
-enum TranscriptParser {
-    static func parse(txtPath: String, audioPath: String) throws -> ParsedTranscript {
+public enum TranscriptParser {
+    public static func parse(txtPath: String, audioPath: String) throws -> ParsedTranscript {
         let sidecarPath = TimingsSidecar.path(forTxtPath: txtPath)
         if FileManager.default.fileExists(atPath: sidecarPath),
             let sidecar = try? TimingsSidecar.read(from: sidecarPath)
@@ -220,10 +225,10 @@ enum TranscriptParser {
     }
 }
 
-enum TranscriptParserError: LocalizedError {
+public enum TranscriptParserError: LocalizedError {
     case noSegments
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .noSegments:
             return "Could not parse any transcript segments from the .txt file"

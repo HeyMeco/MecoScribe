@@ -2,33 +2,92 @@ import AVFoundation
 import FluidAudio
 import Foundation
 
-enum ScribeProcessor {
+public enum ScribeProcessor {
     private static let logger = AppLogger(category: "MecoScribe")
 
-    struct Options {
-        var diarizationMode: DiarizationMode = .nemotron3
-        var threshold: Float = 0.6
-        var transcriptionModel: TranscriptionModel = .parakeet(.ultra)
-        var modelsDirectory: URL
-        var modelDir: String?
+    public struct Options: Sendable {
+        public var diarizationMode: DiarizationMode = .nemotron3
+        public var threshold: Float = 0.6
+        public var transcriptionModel: TranscriptionModel = .parakeet(.ultra)
+        public var modelsDirectory: URL
+        public var modelDir: String?
         /// Nemotron 3.5 language hint (`en-US`, `de-DE`, `auto`, …).
-        var language: String = "auto"
+        public var language: String = "auto"
         /// Nemotron 3.5 chunk tier in milliseconds.
-        var chunkMs: Int = 2240
+        public var chunkMs: Int = 2240
+
+        public init(
+            diarizationMode: DiarizationMode = .nemotron3,
+            threshold: Float = 0.6,
+            transcriptionModel: TranscriptionModel = .parakeet(.ultra),
+            modelsDirectory: URL,
+            modelDir: String? = nil,
+            language: String = "auto",
+            chunkMs: Int = 2240
+        ) {
+            self.diarizationMode = diarizationMode
+            self.threshold = threshold
+            self.transcriptionModel = transcriptionModel
+            self.modelsDirectory = modelsDirectory
+            self.modelDir = modelDir
+            self.language = language
+            self.chunkMs = chunkMs
+        }
     }
 
-    enum DiarizationMode: String {
+    public enum DiarizationMode: String, Sendable, CaseIterable {
         case streaming
         case offline
         case nemotron3
     }
 
-    enum TranscriptionModel {
+    public enum TranscriptionModel: Sendable {
         case parakeet(AsrModelVersion)
         case nemotron3
     }
 
-    static func process(audioPath: String, options: Options) async throws -> ScribeResult {
+    /// Pipeline stages reported to `process(audioPath:options:progress:)` callers.
+    public enum Stage: Sendable, Equatable {
+        /// Downloading (first run) or loading the speaker diarization models.
+        case preparingDiarizationModels
+        case diarizing
+        /// Downloading (first run) or loading the speech recognition models.
+        case preparingTranscriptionModels
+        case transcribing
+        case aligning
+    }
+
+    /// Download progress of the models being prepared in the current stage.
+    public struct ModelProgress: Sendable, Equatable {
+        public enum Phase: Sendable, Equatable {
+            case listing
+            case downloading(completedFiles: Int, totalFiles: Int)
+            case compiling
+        }
+
+        /// While downloading: the fraction of the download done, in [0, 1].
+        /// Otherwise FluidAudio's overall fraction for the operation.
+        public var fractionCompleted: Double
+        public var phase: Phase
+
+        public init(fractionCompleted: Double, phase: Phase) {
+            self.fractionCompleted = fractionCompleted
+            self.phase = phase
+        }
+    }
+
+    public enum ProgressEvent: Sendable, Equatable {
+        case stage(Stage)
+        case models(ModelProgress)
+    }
+
+    public typealias ProgressReporter = @Sendable (ProgressEvent) -> Void
+
+    public static func process(
+        audioPath: String,
+        options: Options,
+        progress: ProgressReporter? = nil
+    ) async throws -> ScribeResult {
         let audioURL = URL(fileURLWithPath: audioPath)
         guard FileManager.default.fileExists(atPath: audioPath) else {
             throw ScribeError.fileNotFound(audioPath)
@@ -36,13 +95,16 @@ enum ScribeProcessor {
 
         logger.info("Using models cache: \(options.modelsDirectory.path)")
         logger.info("Diarizing audio (\(options.diarizationMode.rawValue) mode)...")
-        let segments = try await diarize(audioPath: audioPath, options: options)
+        let segments = try await diarize(audioPath: audioPath, options: options, progress: progress)
         let speakerIds = Array(Set(segments.map(\.speakerId))).sorted()
+        try Task.checkCancellation()
 
         logger.info("Transcribing audio (\(modelLabel(for: options.transcriptionModel)))...")
-        let wordTimings = try await transcribe(audioURL: audioURL, options: options)
+        let wordTimings = try await transcribe(audioURL: audioURL, options: options, progress: progress)
+        try Task.checkCancellation()
 
         logger.info("Aligning \(wordTimings.count) words to \(speakerIds.count) speakers...")
+        progress?(.stage(.aligning))
         let utterances = WordSpeakerAligner.align(words: wordTimings, segments: segments)
 
         let duration: TimeInterval
@@ -63,38 +125,74 @@ enum ScribeProcessor {
         )
     }
 
+    /// Forwards FluidAudio download progress as `.models` events. FluidAudio gives the
+    /// download a share of the whole operation (`downloadWeight`): 0.5 for repo loads,
+    /// which compile afterwards, and 1.0 for subdirectory downloads.
+    private static func downloadHandler(
+        _ progress: ProgressReporter?,
+        downloadWeight: Double
+    ) -> ProgressHandler? {
+        guard let progress else { return nil }
+        return { update in
+            let phase: ModelProgress.Phase
+            var fraction = update.fractionCompleted
+            switch update.phase {
+            case .listing:
+                phase = .listing
+            case .downloading(let completed, let total):
+                // Cached models report an empty download (0 of 0 files); skip it.
+                guard total > 0 else { return }
+                phase = .downloading(completedFiles: completed, totalFiles: total)
+                fraction = min(max(fraction / downloadWeight, 0), 1)
+            case .compiling:
+                phase = .compiling
+            }
+            progress(.models(ModelProgress(fractionCompleted: fraction, phase: phase)))
+        }
+    }
+
     private static func diarize(
         audioPath: String,
-        options: Options
+        options: Options,
+        progress: ProgressReporter?
     ) async throws -> [TimedSpeakerSegment] {
+        progress?(.stage(.preparingDiarizationModels))
         switch options.diarizationMode {
         case .streaming:
             return try await diarizeStreaming(
                 audioPath: audioPath,
                 options: options,
-                threshold: options.threshold
+                threshold: options.threshold,
+                progress: progress
             )
         case .offline:
             return try await diarizeOffline(
                 audioPath: audioPath,
                 options: options,
-                threshold: options.threshold
+                threshold: options.threshold,
+                progress: progress
             )
         case .nemotron3:
-            return try await diarizeNemotron3(audioPath: audioPath, options: options)
+            return try await diarizeNemotron3(audioPath: audioPath, options: options, progress: progress)
         }
     }
 
     private static func diarizeStreaming(
         audioPath: String,
         options: Options,
-        threshold: Float
+        threshold: Float,
+        progress: ProgressReporter?
     ) async throws -> [TimedSpeakerSegment] {
         let config = DiarizerConfig(clusteringThreshold: threshold)
         let manager = DiarizerManager(config: config)
         let diarizerDir = ModelCache.diarizerDirectory(base: options.modelsDirectory)
-        let models = try await DiarizerModels.downloadIfNeeded(to: diarizerDir)
+        let models = try await DiarizerModels.downloadIfNeeded(
+            to: diarizerDir,
+            progressHandler: downloadHandler(progress, downloadWeight: 0.5)
+        )
         manager.initialize(models: models)
+        try Task.checkCancellation()
+        progress?(.stage(.diarizing))
 
         let audioSamples = try AudioConverter().resampleAudioFile(path: audioPath)
         let result = try manager.performCompleteDiarization(audioSamples, sampleRate: 16_000)
@@ -104,12 +202,18 @@ enum ScribeProcessor {
     private static func diarizeOffline(
         audioPath: String,
         options: Options,
-        threshold: Float
+        threshold: Float,
+        progress: ProgressReporter?
     ) async throws -> [TimedSpeakerSegment] {
         let offlineConfig = OfflineDiarizerConfig(clusteringThreshold: Double(threshold))
         let manager = OfflineDiarizerManager(config: offlineConfig)
-        let models = try await OfflineDiarizerModels.load(from: options.modelsDirectory)
+        let models = try await OfflineDiarizerModels.load(
+            from: options.modelsDirectory,
+            progressHandler: downloadHandler(progress, downloadWeight: 0.5)
+        )
         manager.initialize(models: models)
+        try Task.checkCancellation()
+        progress?(.stage(.diarizing))
 
         let audioURL = URL(fileURLWithPath: audioPath)
         let factory = AudioSourceFactory()
@@ -133,14 +237,18 @@ enum ScribeProcessor {
     /// offline preset, which is the highest-quality profile.
     private static func diarizeNemotron3(
         audioPath: String,
-        options: Options
+        options: Options,
+        progress: ProgressReporter?
     ) async throws -> [TimedSpeakerSegment] {
         let config = Nemotron3Config.offline
         logger.info("Loading Nemotron 3 diarization (offline preset)...")
         let models = try await Nemotron3Models.loadFromHuggingFace(
             config: config,
-            cacheDirectory: options.modelsDirectory
+            cacheDirectory: options.modelsDirectory,
+            progressHandler: downloadHandler(progress, downloadWeight: 1.0)
         )
+        try Task.checkCancellation()
+        progress?(.stage(.diarizing))
         let diarizer = Nemotron3Diarizer(config: config, models: models)
         let audioSamples = try AudioConverter().resampleAudioFile(path: audioPath)
         let (probabilities, frameCount) = try diarizer.processComplete(audioSamples)
@@ -162,20 +270,28 @@ enum ScribeProcessor {
 
     private static func transcribe(
         audioURL: URL,
-        options: Options
+        options: Options,
+        progress: ProgressReporter?
     ) async throws -> [WordTiming] {
+        progress?(.stage(.preparingTranscriptionModels))
         switch options.transcriptionModel {
         case .parakeet(let version):
-            return try await transcribeParakeet(audioURL: audioURL, options: options, version: version)
+            return try await transcribeParakeet(
+                audioURL: audioURL,
+                options: options,
+                version: version,
+                progress: progress
+            )
         case .nemotron3:
-            return try await transcribeNemotron3(audioURL: audioURL, options: options)
+            return try await transcribeNemotron3(audioURL: audioURL, options: options, progress: progress)
         }
     }
 
     private static func transcribeParakeet(
         audioURL: URL,
         options: Options,
-        version: AsrModelVersion
+        version: AsrModelVersion,
+        progress: ProgressReporter?
     ) async throws -> [WordTiming] {
         let models: AsrModels
         if let modelDir = options.modelDir {
@@ -187,7 +303,8 @@ enum ScribeProcessor {
             let asrDir = ModelCache.asrDirectory(base: options.modelsDirectory, version: version)
             models = try await AsrModels.downloadAndLoad(
                 to: asrDir,
-                version: version
+                version: version,
+                progressHandler: downloadHandler(progress, downloadWeight: 0.5)
             )
         }
 
@@ -198,6 +315,8 @@ enum ScribeProcessor {
         )
         let asrManager = AsrManager(config: asrConfig)
         try await asrManager.loadModels(models)
+        try Task.checkCancellation()
+        progress?(.stage(.transcribing))
 
         defer {
             Task { await asrManager.cleanup() }
@@ -216,7 +335,8 @@ enum ScribeProcessor {
     /// blocks and groups SentencePiece token timings into words.
     private static func transcribeNemotron3(
         audioURL: URL,
-        options: Options
+        options: Options,
+        progress: ProgressReporter?
     ) async throws -> [WordTiming] {
         let modelDir: URL
         if let custom = options.modelDir {
@@ -228,13 +348,16 @@ enum ScribeProcessor {
             modelDir = try await StreamingNemotronMultilingualAsrManager.downloadVariant(
                 languageCode: options.language,
                 chunkMs: options.chunkMs,
-                to: options.modelsDirectory
+                to: options.modelsDirectory,
+                progressHandler: downloadHandler(progress, downloadWeight: 1.0)
             )
         }
 
         let manager = StreamingNemotronMultilingualAsrManager()
         try await manager.loadModels(from: modelDir)
         await manager.setLanguage(options.language)
+        try Task.checkCancellation()
+        progress?(.stage(.transcribing))
 
         let audioFile = try AVAudioFile(forReading: audioURL)
         let converter = AudioConverter()
@@ -283,11 +406,11 @@ enum ScribeProcessor {
     }
 }
 
-enum ScribeError: LocalizedError {
+public enum ScribeError: LocalizedError {
     case fileNotFound(String)
     case invalidArgument(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .fileNotFound(let path):
             return "Audio file not found: \(path)"

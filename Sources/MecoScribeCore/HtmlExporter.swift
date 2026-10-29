@@ -1,12 +1,24 @@
 import Foundation
 
-enum HtmlExporter {
-    static func export(
+public enum HtmlExporter {
+    public static func export(
         _ result: ScribeResult,
         audioPath: String,
         htmlPath: String,
         speakerNames: [String: String]
     ) throws {
+        let html = try render(result, audioPath: audioPath, htmlPath: htmlPath, speakerNames: speakerNames)
+        try html.write(toFile: htmlPath, atomically: true, encoding: .utf8)
+    }
+
+    /// The viewer as it would be written to `htmlPath`: the audio is linked relative to
+    /// that folder and the linked-folder file names are derived from its base name.
+    public static func render(
+        _ result: ScribeResult,
+        audioPath: String,
+        htmlPath: String,
+        speakerNames: [String: String]
+    ) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let utterancesJSON = String(data: try encoder.encode(result.utterances), encoding: .utf8) ?? "[]"
@@ -32,8 +44,7 @@ enum HtmlExporter {
             .replacingOccurrences(of: "{{UTTERANCES_JSON}}", with: utterancesJSON)
             .replacingOccurrences(of: "{{SPEAKER_IDS_JSON}}", with: speakerIdsJSON)
             .replacingOccurrences(of: "{{SPEAKER_NAMES_JSON}}", with: speakerNamesJSON)
-
-        try html.write(toFile: htmlPath, atomically: true, encoding: .utf8)
+        return html
     }
 
     private static func relativePath(from directory: String, to target: String) -> String {
@@ -324,11 +335,27 @@ enum HtmlExporter {
           border-color: #ef4444;
           color: white;
         }
+        .dialog-actions button:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
         dialog p {
           margin: 0 0 16px;
           font-size: 0.92rem;
           line-height: 1.5;
           color: var(--muted);
+        }
+        .merge-speaker-options {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          margin-bottom: 16px;
+          max-height: 240px;
+          overflow-y: auto;
+        }
+        .merge-speaker-options .speaker-assign-option.selected {
+          border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+          background: color-mix(in srgb, var(--accent) 16%, var(--panel));
         }
         .toolbar {
           display: flex;
@@ -636,6 +663,18 @@ enum HtmlExporter {
         </form>
       </dialog>
 
+      <dialog id="mergeSpeakerDialog">
+        <form method="dialog" id="mergeSpeakerForm">
+          <h3>Merge speaker</h3>
+          <p id="mergeSpeakerMessage"></p>
+          <div class="speaker-assign-options merge-speaker-options" id="mergeSpeakerOptions"></div>
+          <div class="dialog-actions">
+            <button type="button" id="cancelMergeSpeaker">Cancel</button>
+            <button type="submit" class="primary" id="confirmMergeSpeaker" disabled>Merge</button>
+          </div>
+        </form>
+      </dialog>
+
       <script>
         let utterances = {{UTTERANCES_JSON}};
         let originalUtterances = JSON.parse(JSON.stringify(utterances));
@@ -654,6 +693,8 @@ enum HtmlExporter {
         let addingNewSpeaker = false;
         let assignRefsAfterNewSpeaker = null;
         let deletingSpeakerId = null;
+        let mergingSpeakerId = null;
+        let mergeTargetSpeakerId = null;
         let activeEditor = null;
         let isDirty = false;
         let lastSavedAt = null;
@@ -702,6 +743,12 @@ enum HtmlExporter {
         const deleteSpeakerMessage = document.getElementById("deleteSpeakerMessage");
         const cancelDeleteSpeaker = document.getElementById("cancelDeleteSpeaker");
         const confirmDeleteSpeaker = document.getElementById("confirmDeleteSpeaker");
+        const mergeSpeakerDialog = document.getElementById("mergeSpeakerDialog");
+        const mergeSpeakerForm = document.getElementById("mergeSpeakerForm");
+        const mergeSpeakerMessage = document.getElementById("mergeSpeakerMessage");
+        const mergeSpeakerOptions = document.getElementById("mergeSpeakerOptions");
+        const cancelMergeSpeaker = document.getElementById("cancelMergeSpeaker");
+        const confirmMergeSpeaker = document.getElementById("confirmMergeSpeaker");
         let pendingSpeakerAssignRefs = [];
         let canonicalWordBank = null;
         let wordDragState = null;
@@ -1631,6 +1678,19 @@ enum HtmlExporter {
         function showSpeakerChipMenu(speakerId, clientX, clientY) {
           speakerChipMenuOptions.innerHTML = "";
 
+          if (speakerIds.length > 1) {
+            const mergeButton = document.createElement("button");
+            mergeButton.type = "button";
+            mergeButton.className = "speaker-assign-option";
+            mergeButton.textContent = "Merge speaker…";
+            mergeButton.addEventListener("mousedown", (event) => event.preventDefault());
+            mergeButton.addEventListener("click", () => {
+              hideSpeakerChipMenu();
+              openMergeSpeakerDialog(speakerId);
+            });
+            speakerChipMenuOptions.appendChild(mergeButton);
+          }
+
           const deleteButton = document.createElement("button");
           deleteButton.type = "button";
           deleteButton.className = "speaker-assign-option danger";
@@ -2379,12 +2439,20 @@ enum HtmlExporter {
           speakerIds.forEach((id) => {
             const chip = document.createElement("div");
             chip.className = "speaker-chip";
+            const mergeButtonMarkup = speakerIds.length > 1
+              ? `<button type="button" data-action="merge" data-speaker="${id}">Merge</button>`
+              : "";
             chip.innerHTML = `
               <span class="speaker-dot" style="background:${speakerColor(id)}"></span>
               <span>${speakerName(id)}</span>
-              <button type="button" data-speaker="${id}">Rename</button>
+              <button type="button" data-action="rename" data-speaker="${id}">Rename</button>
+              ${mergeButtonMarkup}
             `;
-            chip.querySelector("button").addEventListener("click", () => openRenameDialog(id));
+            chip.querySelector('[data-action="rename"]').addEventListener("click", () => openRenameDialog(id));
+            const mergeButton = chip.querySelector('[data-action="merge"]');
+            if (mergeButton) {
+              mergeButton.addEventListener("click", () => openMergeSpeakerDialog(id));
+            }
             chip.addEventListener("contextmenu", (event) => {
               event.preventDefault();
               hideSpeakerAssignMenu();
@@ -2614,6 +2682,66 @@ enum HtmlExporter {
           renderTranscript();
         }
 
+        function openMergeSpeakerDialog(speakerId) {
+          if (speakerIds.length < 2) return;
+          hideSpeakerAssignMenu();
+          hideSpeakerChipMenu();
+          mergingSpeakerId = speakerId;
+          mergeTargetSpeakerId = null;
+          const name = speakerName(speakerId);
+          mergeSpeakerMessage.textContent =
+            `Move ${name}'s transcriptions into another speaker. ${name} will be removed.`;
+          confirmMergeSpeaker.disabled = true;
+          mergeSpeakerOptions.innerHTML = "";
+          speakerIds.forEach((id) => {
+            if (id === speakerId) return;
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "speaker-assign-option";
+            button.innerHTML = `
+              <span class="speaker-dot" style="background:${speakerColor(id)}"></span>
+              <span>${speakerName(id)}</span>
+            `;
+            button.addEventListener("click", () => {
+              mergeTargetSpeakerId = id;
+              mergeSpeakerOptions.querySelectorAll(".speaker-assign-option").forEach((option) => {
+                option.classList.toggle("selected", option === button);
+              });
+              confirmMergeSpeaker.disabled = false;
+            });
+            mergeSpeakerOptions.appendChild(button);
+          });
+          mergeSpeakerDialog.showModal();
+        }
+
+        function mergeSpeaker(sourceId, targetId) {
+          if (!sourceId || !targetId || sourceId === targetId) return;
+          if (!speakerIds.includes(sourceId) || !speakerIds.includes(targetId)) return;
+
+          const allWords = [];
+          utterances.forEach((utterance) => {
+            utterance.words.forEach((word) => {
+              const nextWord = { ...word };
+              const currentId = word.speakerId ?? utterance.speakerId;
+              nextWord.speakerId = currentId === sourceId ? targetId : currentId;
+              allWords.push(nextWord);
+            });
+          });
+          allWords.sort((a, b) => a.startTime - b.startTime);
+
+          pushHistory();
+          utterances = regroupUtterancesFromWords(allWords, { respectTimeGaps: false });
+          speakerIds = speakerIds.filter((id) => id !== sourceId);
+          delete speakerNames[sourceId];
+          mergingSpeakerId = null;
+          mergeTargetSpeakerId = null;
+          syncWordBankFromUtterances();
+          markDirty();
+          scheduleWriteToLinkedFile();
+          renderSpeakers();
+          renderTranscript();
+        }
+
         deleteSpeakerForm.addEventListener("submit", (event) => {
           event.preventDefault();
           if (!deletingSpeakerId) return;
@@ -2624,6 +2752,19 @@ enum HtmlExporter {
         cancelDeleteSpeaker.addEventListener("click", () => {
           deleteSpeakerDialog.close();
           deletingSpeakerId = null;
+        });
+
+        mergeSpeakerForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (!mergingSpeakerId || !mergeTargetSpeakerId) return;
+          mergeSpeaker(mergingSpeakerId, mergeTargetSpeakerId);
+          mergeSpeakerDialog.close();
+        });
+
+        cancelMergeSpeaker.addEventListener("click", () => {
+          mergeSpeakerDialog.close();
+          mergingSpeakerId = null;
+          mergeTargetSpeakerId = null;
         });
 
         renameForm.addEventListener("submit", (event) => {

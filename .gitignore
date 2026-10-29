@@ -43,3 +43,7 @@ Icon
 
 # Local transcription outputs (when testing in-repo)
 *.mecoscribe.json
+*.mscribe
+
+# App bundle output
+dist/
