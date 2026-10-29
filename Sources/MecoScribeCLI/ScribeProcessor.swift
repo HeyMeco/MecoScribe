@@ -26,12 +26,21 @@ enum ScribeProcessor {
     enum TranscriptionModel {
         case parakeet(AsrModelVersion)
         case nemotron3
+        /// Nemotron 3.5 Transcribe Lite (English, greedy CTC). Fast, low accuracy.
+        case transcribeLite
     }
 
     static func process(audioPath: String, options: Options) async throws -> ScribeResult {
         let audioURL = URL(fileURLWithPath: audioPath)
         guard FileManager.default.fileExists(atPath: audioPath) else {
             throw ScribeError.fileNotFound(audioPath)
+        }
+
+        // Fail before diarization rather than after it.
+        if case .transcribeLite = options.transcriptionModel {
+            guard #available(macOS 15, *) else {
+                throw ScribeError.unsupportedPlatform(transcribeLitePlatformMessage)
+            }
         }
 
         logger.info("Using models cache: \(options.modelsDirectory.path)")
@@ -169,6 +178,12 @@ enum ScribeProcessor {
             return try await transcribeParakeet(audioURL: audioURL, options: options, version: version)
         case .nemotron3:
             return try await transcribeNemotron3(audioURL: audioURL, options: options)
+        case .transcribeLite:
+            do {
+                return try await transcribeLite(audioURL: audioURL, options: options)
+            } catch ASRError.unsupportedPlatform {
+                throw ScribeError.unsupportedPlatform(transcribeLitePlatformMessage)
+            }
         }
     }
 
@@ -263,6 +278,54 @@ enum ScribeProcessor {
         return WordTimingMerger.mergeTokensIntoWords(finished.timings)
     }
 
+    private static let transcribeLitePlatformMessage =
+        "--model-version transcribe-lite requires macOS 15 or newer (its Core ML models are macOS 15 ML Programs). "
+        + "Use the default Parakeet Ultra on macOS 14."
+
+    /// Nemotron 3.5 Transcribe Lite: encoder + CTC timestamp head without the LLM.
+    /// Words carry only a start time, so each word ends where the next one starts
+    /// and the last word ends at the end of the audio. That gives
+    /// `WordSpeakerAligner` a usable midpoint for every word.
+    private static func transcribeLite(
+        audioURL: URL,
+        options: Options
+    ) async throws -> [WordTiming] {
+        let models: NemotronTranscribeLiteModels
+        if let custom = options.modelDir {
+            models = try NemotronTranscribeLiteModels.load(from: URL(fileURLWithPath: custom))
+        } else {
+            // Same as NemotronTranscribeLiteManager.load(), but cached under --models-dir
+            // instead of FluidAudio's Application Support folder.
+            logger.info("Downloading Nemotron 3.5 Transcribe Lite (~1.36 GB) if needed...")
+            let liteDir = ModelCache.transcribeLiteDirectory(base: options.modelsDirectory)
+            models = try await ModelHub.loadWithRecovery(
+                .nemotron35TranscribeLite,
+                directory: options.modelsDirectory,
+                requiredFiles: ModelNames.NemotronTranscribeLite.requiredModels
+            ) {
+                try NemotronTranscribeLiteModels.load(from: liteDir)
+            }
+        }
+
+        let manager = NemotronTranscribeLiteManager(models: models)
+        try await manager.warmup()
+
+        let samples = try AudioConverter().resampleAudioFile(audioURL)
+        let result = try await manager.transcribe(audio: samples)
+
+        let words = result.words
+        return words.indices.map { index in
+            let start = words[index].start
+            let nextStart = index + 1 < words.count ? words[index + 1].start : result.durationSeconds
+            return WordTiming(
+                word: words[index].text,
+                startTime: start,
+                endTime: max(start, nextStart),
+                confidence: 1
+            )
+        }
+    }
+
     private static func modelLabel(for model: TranscriptionModel) -> String {
         switch model {
         case .parakeet(.v2):
@@ -277,8 +340,16 @@ enum ScribeProcessor {
             return "Parakeet tdt-ctc-110m"
         case .parakeet(.tdtJa):
             return "Parakeet tdt-ja"
+        case .parakeet(.phonon2):
+            return "English-only Phonon-2"
+        case .parakeet(.bark3):
+            return "English-only Bark 3.0"
+        case .parakeet(.bark3Clean):
+            return "English-only Bark 3.0 Clean"
         case .nemotron3:
-            return "Nemotron 3.5 multilingual"
+            return "Nemotron 3.5 ASR (streaming 0.6B)"
+        case .transcribeLite:
+            return "Nemotron 3.5 Transcribe Lite"
         }
     }
 }
@@ -286,12 +357,13 @@ enum ScribeProcessor {
 enum ScribeError: LocalizedError {
     case fileNotFound(String)
     case invalidArgument(String)
+    case unsupportedPlatform(String)
 
     var errorDescription: String? {
         switch self {
         case .fileNotFound(let path):
             return "Audio file not found: \(path)"
-        case .invalidArgument(let message):
+        case .invalidArgument(let message), .unsupportedPlatform(let message):
             return message
         }
     }

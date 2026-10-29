@@ -43,6 +43,18 @@ enum ModelCache {
             return .parakeetRedux
         case .ultra:
             return .parakeetUltra
+        case .phonon2:
+            return .phonon2
+        case .bark3:
+            return .bark3
+        case .bark3Clean:
+            return .bark3Clean
         }
+    }
+
+    /// Nemotron 3.5 Transcribe Lite cache folder. Its repo is laid out as
+    /// `coreml/` + `assets/` and is loaded from this directory as-is.
+    static func transcribeLiteDirectory(base: URL) -> URL {
+        base.appendingPathComponent(Repo.nemotron35TranscribeLite.folderName, isDirectory: true)
     }
 }

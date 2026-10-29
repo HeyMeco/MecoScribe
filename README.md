@@ -8,7 +8,9 @@ Local CLI for **diarized transcription** on macOS, built on [FluidAudio](https:/
 
 - **Diarized transcription** — NVIDIA Nemotron 3 diarization by default (Apple Silicon, up to 8 speakers). The offline VBx pipeline is available with `--mode offline`
 - **Parakeet Ultra** — default multilingual ASR, more accurate than v3 with the same languages. Parakeet v3 is available with `--model-version v3`
-- **Nemotron 3.5 ASR** — multilingual streaming transcription with `--model-version nemotron3` (about 40 languages, Apple Silicon)
+- **Nemotron 3.5 ASR (streaming 0.6B)** — multilingual streaming transcription with `--model-version nemotron3` (alias `nemotron3.5`; about 40 languages, Apple Silicon)
+- **English-only Parakeet-family models** — Phonon-2 (`phonon2`), Bark 3.0 (`bark3`, verbatim) and Bark 3.0 Clean (`bark3-clean`, drops fillers and false starts); macOS 15+
+- **Nemotron 3.5 Transcribe Lite** (opt-in) — `--model-version transcribe-lite`. Very fast, but **low accuracy** (about 26% WER on an AMI meeting recording). English only, macOS 15+, roughly a 1.36 GB download
 - **Plain-text output** — `<filename>.txt` with timestamps and speaker labels
 - **Interactive HTML** — `<filename>.html` with:
   - Color-coded speaker segments
@@ -19,7 +21,7 @@ Local CLI for **diarized transcription** on macOS, built on [FluidAudio](https:/
 
 ## Requirements
 
-- macOS 14+
+- macOS 14+ (macOS 15+ for `phonon2`, `bark3`, `bark3-clean` and `transcribe-lite`)
 - Swift 6.0+
 - Apple Silicon recommended (uses CoreML / ANE via FluidAudio)
 - Network access on first run (models download from Hugging Face)
@@ -52,8 +54,11 @@ swift run mecoscribe interview.mp3 --output-dir ./transcripts
 # Previous pipeline: offline VBx diarization + Parakeet v3
 swift run mecoscribe call.m4a --mode offline --model-version v3
 
-# Nemotron 3.5 multilingual ASR instead of Parakeet Ultra (Apple Silicon)
+# Nemotron 3.5 ASR (streaming 0.6B) instead of Parakeet Ultra (Apple Silicon)
 swift run mecoscribe call.m4a --model-version nemotron3 --language de-DE
+
+# Nemotron 3.5 Transcribe Lite: fast but low accuracy (English, macOS 15+)
+swift run mecoscribe meeting.wav --model-version transcribe-lite
 
 # Preset speaker names
 swift run mecoscribe panel.wav --speakers "Alice,Bob,Carol"
@@ -67,9 +72,9 @@ swift run mecoscribe panel.wav --speakers "Alice,Bob,Carol"
 | `--models-dir <dir>` | Model cache directory (default: `./models`) |
 | `--mode streaming\|offline\|nemotron3` | Diarization mode (default: `nemotron3`). `nemotron3` is NVIDIA Nemotron 3 (Apple Silicon, up to 8 speakers); `offline` is the VBx pipeline |
 | `--threshold <float>` | Speaker clustering threshold, or Nemotron 3 frame-activity threshold (default: `0.6`) |
-| `--model-version v2\|v3\|ultra\|nemotron3` | ASR model — default `ultra` (multilingual Parakeet); `v3` is the previous multilingual Parakeet; `v2` is English-only; `nemotron3` is Nemotron 3.5 streaming multilingual ASR (Apple Silicon) |
-| `--language <code>` | Nemotron 3.5 language hint (default: `auto`). Examples: `en-US`, `de-DE`, `fr-FR`, `ja-JP` |
-| `--chunk-ms <560\|1120\|2240\|4480>` | Nemotron 3.5 chunk tier (default: `2240`) |
+| `--model-version <name>` | ASR model — default `ultra` (multilingual Parakeet); `v3` is the previous multilingual Parakeet; `v2` is English-only; `phonon2`, `bark3` and `bark3-clean` are English-only (macOS 15+); `nemotron3` (alias `nemotron3.5`) is Nemotron 3.5 ASR (streaming 0.6B), multilingual (Apple Silicon); `transcribe-lite` is Nemotron 3.5 Transcribe Lite — fast but low accuracy (~26% WER on AMI meetings), English only, macOS 15+, ~1.36 GB download |
+| `--language <code>` | Nemotron 3.5 ASR language hint, `nemotron3` only (default: `auto`). Examples: `en-US`, `de-DE`, `fr-FR`, `ja-JP` |
+| `--chunk-ms <560\|1120\|2240\|4480>` | Nemotron 3.5 ASR chunk tier, `nemotron3` only (default: `2240`) |
 | `--model-dir <path>` | Use local ASR models instead of downloading |
 | `--speakers <n1,n2,...>` | Initial speaker display names |
 | `-h, --help` | Show help |
@@ -93,7 +98,7 @@ Given `meeting.wav`, MecoScribe produces:
 ## How it works
 
 1. **Diarization** — FluidAudio identifies who spoke when (NVIDIA Nemotron 3 by default, or the `offline` VBx pipeline with `--mode offline`)
-2. **Transcription** — Parakeet Ultra by default, Parakeet v3 (`--model-version v3`), or Nemotron 3.5 streaming ASR (`--model-version nemotron3`), with word-level timestamps
+2. **Transcription** — Parakeet Ultra by default, Parakeet v3 (`--model-version v3`), Nemotron 3.5 ASR (streaming 0.6B) (`--model-version nemotron3`), or Nemotron 3.5 Transcribe Lite (`--model-version transcribe-lite`), with word-level timestamps. Transcribe Lite only reports word start times, so each word is taken to end where the next one starts
 3. **Alignment** — words are mapped to speakers by timestamp overlap
 4. **Export** — plain text and self-contained HTML are written
 

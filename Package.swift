@@ -13,7 +13,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", branch: "main"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.18.0"),
     ],
     targets: [
         .executableTarget(

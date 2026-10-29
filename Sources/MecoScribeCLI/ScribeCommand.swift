@@ -177,11 +177,20 @@ enum ScribeCommand {
                     parsed.transcriptionModel = .parakeet(.v3)
                 case "ultra":
                     parsed.transcriptionModel = .parakeet(.ultra)
-                case "nemotron3", "nemotron":
+                case "phonon2", "phonon-2":
+                    parsed.transcriptionModel = .parakeet(.phonon2)
+                case "bark3", "bark-3":
+                    parsed.transcriptionModel = .parakeet(.bark3)
+                case "bark3-clean", "bark3clean":
+                    parsed.transcriptionModel = .parakeet(.bark3Clean)
+                case "nemotron3", "nemotron3.5", "nemotron":
                     parsed.transcriptionModel = .nemotron3
+                case "transcribe-lite":
+                    parsed.transcriptionModel = .transcribeLite
                 default:
                     fputs(
-                        "ERROR: Invalid model version '\(args[i + 1])'. Use 'v2', 'v3', 'ultra', or 'nemotron3'.\n",
+                        "ERROR: Invalid model version '\(args[i + 1])'. Use 'v2', 'v3', 'ultra', 'phonon2', "
+                            + "'bark3', 'bark3-clean', 'nemotron3' (alias 'nemotron3.5'), or 'transcribe-lite'.\n",
                         stderr
                     )
                     return nil
@@ -249,7 +258,14 @@ enum ScribeCommand {
             return nil
         }
 
-        if case .parakeet = parsed.transcriptionModel {
+        let supportsNemotronOptions: Bool
+        switch parsed.transcriptionModel {
+        case .nemotron3:
+            supportsNemotronOptions = true
+        case .parakeet, .transcribeLite:
+            supportsNemotronOptions = false
+        }
+        if !supportsNemotronOptions {
             let languageChanged = parsed.language != "auto"
             let chunkChanged = parsed.chunkMs != 2240
             if languageChanged || chunkChanged {
@@ -278,14 +294,24 @@ enum ScribeCommand {
                                          nemotron3 uses NVIDIA Nemotron 3 (Apple Silicon);
                                          offline is the VBx pipeline
             --threshold <float>          Speaker clustering / activity threshold (default: 0.6)
-            --model-version <v2|v3|ultra|nemotron3>
-                                         ASR model: ultra multilingual Parakeet (default),
-                                         v3 multilingual Parakeet, v2 English-only, or
-                                         nemotron3 (Nemotron 3.5 streaming, Apple Silicon)
-            --language <code>            Nemotron 3.5 language hint (default: auto).
+            --model-version <name>       ASR model (default: ultra):
+                                           ultra            Parakeet Ultra, multilingual (default)
+                                           v3               Parakeet v3, multilingual
+                                           v2               Parakeet v2, English-only
+                                           phonon2          Phonon-2, English-only (macOS 15+)
+                                           bark3            Bark 3.0, English-only, verbatim (macOS 15+)
+                                           bark3-clean      Bark 3.0 Clean, English-only, drops
+                                                            fillers and false starts (macOS 15+)
+                                           nemotron3        Nemotron 3.5 ASR (streaming 0.6B),
+                                                            multilingual, Apple Silicon
+                                                            (alias: nemotron3.5)
+                                           transcribe-lite  Nemotron 3.5 Transcribe Lite, English-only,
+                                                            macOS 15+. Fast but LOW accuracy (~26% WER
+                                                            on an AMI meeting); ~1.36 GB download
+            --language <code>            Nemotron 3.5 ASR language hint (nemotron3 only, default: auto).
                                          Examples: en-US, de-DE, fr-FR, ja-JP, zh-CN
             --chunk-ms <560|1120|2240|4480>
-                                         Nemotron 3.5 latency tier (default: 2240)
+                                         Nemotron 3.5 ASR latency tier (nemotron3 only, default: 2240)
             --model-dir <path>           Local ASR model directory (overrides cache)
             --speakers <n1,n2,...>       Preset speaker display names
             -h, --help                   Show this help
@@ -307,10 +333,12 @@ enum ScribeCommand {
             mecoscribe meeting.wav --mode offline --model-version v3
             mecoscribe meeting.wav --model-version nemotron3
             mecoscribe interview.mp3 --output-dir ./output --model-version nemotron3 --language de-DE
+            mecoscribe meeting.wav --model-version transcribe-lite
 
         Requirements:
-            macOS 14+ with Apple Silicon recommended. Models download automatically
-            from Hugging Face on first run.
+            macOS 14+ with Apple Silicon recommended (macOS 15+ for phonon2, bark3,
+            bark3-clean and transcribe-lite). Models download automatically from
+            Hugging Face on first run.
 
         """
         print(usage)
