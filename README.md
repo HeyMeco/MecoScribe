@@ -98,7 +98,7 @@ Given `meeting.wav`, MecoScribe produces:
 ## How it works
 
 1. **Diarization** — FluidAudio identifies who spoke when (NVIDIA Nemotron 3 by default, or the `offline` VBx pipeline with `--mode offline`)
-2. **Transcription** — Parakeet Ultra by default, Parakeet v3 (`--model-version v3`), Nemotron 3.5 ASR (streaming 0.6B) (`--model-version nemotron3`), or Nemotron 3.5 Transcribe Lite (`--model-version transcribe-lite`), with word-level timestamps. Transcribe Lite only reports word start times, so each word is taken to end where the next one starts
+2. **Transcription** — Parakeet Ultra by default, Parakeet v3 (`--model-version v3`), Nemotron 3.5 ASR (streaming 0.6B) (`--model-version nemotron3`), or Nemotron 3.5 Transcribe Lite (`--model-version transcribe-lite`), with word-level timestamps. Transcribe Lite only reports word start times, so each word is taken to end where the next one starts, capped at 1 second so pauses aren't counted as speech
 3. **Alignment** — words are mapped to speakers by timestamp overlap
 4. **Export** — plain text and self-contained HTML are written
 

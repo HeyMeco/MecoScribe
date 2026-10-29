@@ -283,9 +283,8 @@ enum ScribeProcessor {
         + "Use the default Parakeet Ultra on macOS 14."
 
     /// Nemotron 3.5 Transcribe Lite: encoder + CTC timestamp head without the LLM.
-    /// Words carry only a start time, so each word ends where the next one starts
-    /// and the last word ends at the end of the audio. That gives
-    /// `WordSpeakerAligner` a usable midpoint for every word.
+    /// Words carry only a start time; `inferWordEnds` fills in end times so
+    /// `WordSpeakerAligner` gets a usable midpoint for every word.
     private static func transcribeLite(
         audioURL: URL,
         options: Options
@@ -313,14 +312,29 @@ enum ScribeProcessor {
         let samples = try AudioConverter().resampleAudioFile(audioURL)
         let result = try await manager.transcribe(audio: samples)
 
-        let words = result.words
-        return words.indices.map { index in
+        return inferWordEnds(result.words, audioDuration: result.durationSeconds)
+    }
+
+    /// Longest span a Transcribe Lite word may cover. Without a cap, a pause after
+    /// a word (or trailing silence after the last one) would be added to it,
+    /// pushing its midpoint into the next speaker's turn and keeping it
+    /// highlighted in the HTML through the silence.
+    private static let transcribeLiteMaxWordSeconds: TimeInterval = 1.0
+
+    /// Each word ends where the next one starts (or at the end of the audio),
+    /// but never more than `transcribeLiteMaxWordSeconds` after its own start.
+    static func inferWordEnds(
+        _ words: [NemotronTranscribeLiteWord],
+        audioDuration: TimeInterval
+    ) -> [WordTiming] {
+        words.indices.map { index in
             let start = words[index].start
-            let nextStart = index + 1 < words.count ? words[index + 1].start : result.durationSeconds
+            let nextStart = index + 1 < words.count ? words[index + 1].start : audioDuration
+            let end = min(nextStart, start + transcribeLiteMaxWordSeconds)
             return WordTiming(
                 word: words[index].text,
                 startTime: start,
-                endTime: max(start, nextStart),
+                endTime: max(start, end),
                 confidence: 1
             )
         }
