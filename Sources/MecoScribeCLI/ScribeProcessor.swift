@@ -54,8 +54,12 @@ enum ScribeProcessor {
         logger.info("Aligning \(wordTimings.count) words to \(speakerIds.count) speakers...")
         let utterances = WordSpeakerAligner.align(words: wordTimings, segments: segments)
 
+        // Prefer the file's real length: the last word ends where speech ends,
+        // so trailing silence would otherwise be missing from the duration.
         let duration: TimeInterval
-        if let lastWord = wordTimings.last {
+        if let audioDuration = audioFileDuration(audioURL) {
+            duration = audioDuration
+        } else if let lastWord = wordTimings.last {
             duration = lastWord.endTime
         } else if let lastSegment = segments.max(by: { $0.endTimeSeconds < $1.endTimeSeconds }) {
             duration = TimeInterval(lastSegment.endTimeSeconds)
@@ -70,6 +74,13 @@ enum ScribeProcessor {
             utterances: utterances,
             speakerIds: speakerIds
         )
+    }
+
+    private static func audioFileDuration(_ url: URL) -> TimeInterval? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let sampleRate = file.processingFormat.sampleRate
+        guard sampleRate > 0, file.length > 0 else { return nil }
+        return Double(file.length) / sampleRate
     }
 
     private static func diarize(
