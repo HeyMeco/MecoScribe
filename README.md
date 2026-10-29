@@ -4,6 +4,8 @@
 
 # MecoScribe
 
+![MecoScribe Mac app editing a transcript](.github/mecoscribe-app-demo.gif)
+
 Local **diarized transcription** for macOS, built on [FluidAudio](https://github.com/FluidInference/FluidAudio). MecoScribe is a native Mac app: drop in an audio or video file and get a speaker-labeled transcript you can play back, correct and reassign, all on your Mac. A [command-line tool](#command-line-tool) with the same pipeline is included.
 
 ## Features
